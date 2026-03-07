@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Quizzer Coach | Voice UI Prototype</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="bg-shape bg-shape-a" aria-hidden="true"></div>
+  <div class="bg-shape bg-shape-b" aria-hidden="true"></div>
+
+  <main class="app-shell">
+    <header class="top-bar">
+      <div>
+        <p class="eyebrow">Phase 1 Prototype</p>
+        <h1>Voice Practice UI</h1>
+      </div>
+      <div id="status-pill" class="status-pill idle">Idle</div>
+    </header>
+
+    <section class="control-panel">
+      <div class="orb-wrap">
+        <button id="session-toggle" class="voice-orb" type="button" aria-label="Toggle voice session">
+          <span class="orb-core"></span>
+          <span class="orb-label">Start Session</span>
+        </button>
+      </div>
+
+      <div class="action-row">
+        <button id="ptt-button" class="secondary-btn" type="button">Hold to Talk</button>
+        <button id="repeat-button" class="secondary-btn" type="button">Repeat</button>
+      </div>
+
+      <div class="meta-grid">
+        <article class="meta-card">
+          <p class="meta-label">Mode</p>
+          <p id="mode-text" class="meta-value">Warmup</p>
+        </article>
+        <article class="meta-card">
+          <p class="meta-label">Score</p>
+          <p id="score-text" class="meta-value">0</p>
+        </article>
+        <article class="meta-card">
+          <p class="meta-label">Timer</p>
+          <p id="timer-text" class="meta-value">--</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="transcript-panel">
+      <div class="panel-head">
+        <h2>Live Conversation</h2>
+        <p id="engine-note">Mic ready</p>
+      </div>
+      <div id="conversation-log" class="conversation-log" aria-live="polite"></div>
+      <p class="hint">
+        Try: "start quiz", "jump", "repeat question", "what's my score", or answer directly.
+      </p>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

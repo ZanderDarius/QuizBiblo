@@ -16,7 +16,7 @@ A small factual-question practice app that demonstrates AI answer judgment for n
    npm.cmd start
    ```
 
-3. Open `http://localhost:3000`.
+3. Open `http://localhost:3101`.
 
 The key stays on the server and is never sent to the browser. Without a key, the app remains usable but only accepts direct approved-answer matches; all other answers are returned as **Needs review**.
 

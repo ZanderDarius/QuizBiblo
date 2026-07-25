@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuizBiblo | AI Practice Pilot</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <p class="eyebrow">QuizBiblo · AI Practice Pilot</p>
+      <h1>Answer naturally. Learn clearly.</h1>
+      <p>Short factual Bible questions with a quiz-style interruption and an explainable AI ruling.</p>
+    </header>
+
+    <section class="workspace" aria-label="Quiz practice">
+      <aside class="panel setup-panel">
+        <h2>Question bank</h2>
+        <p class="muted">Use the sample bank or import your own approved factual questions.</p>
+        <label class="import-button" for="importFile">Import CSV or TSV<input id="importFile" type="file" accept=".csv,.tsv,.txt"></label>
+        <button class="quiet-button" id="downloadTemplateBtn">Download import template</button>
+        <p class="file-note" id="bankStatus">7 sample questions ready</p>
+        <details>
+          <summary>Required columns</summary>
+          <p><code>question</code>, <code>expected_answer</code>, <code>accepted_answers</code>, <code>reference</code>, and <code>explanation</code>.</p>
+        </details>
+
+        <hr>
+        <h2>Session</h2>
+        <button class="primary-button" id="startBtn">Start question</button>
+        <button class="buzzer-button" id="buzzBtn" disabled><kbd>Space</kbd> Buzz in</button>
+        <button class="quiet-button" id="nextBtn" disabled>Next question</button>
+        <p class="keyboard-help"><kbd>Space</kbd> buzzes only while the question is reading. <kbd>Enter</kbd> submits your answer.</p>
+      </aside>
+
+      <section class="panel quiz-panel">
+        <div class="status-row">
+          <span id="questionNumber">Question 1</span>
+          <span class="ai-status" id="aiStatus">Checking AI connection…</span>
+        </div>
+
+        <section class="question-area" aria-live="polite">
+          <p class="section-label">Quizmaster question</p>
+          <p class="question-text" id="questionText">Press “Start question” to begin.</p>
+          <p class="reading-state" id="readingState">Ready</p>
+        </section>
+
+        <section class="answer-area" id="answerArea" hidden>
+          <label for="answerInput">Your answer</label>
+          <textarea id="answerInput" rows="3" placeholder="Type an answer, or press Windows + H to dictate into this box."></textarea>
+          <div class="answer-actions">
+            <button class="primary-button" id="submitBtn">Submit answer <kbd>Enter</kbd></button>
+            <span>Windows Voice Typing: <kbd>Win</kbd> + <kbd>H</kbd></span>
+          </div>
+        </section>
+
+        <section class="ruling-area" id="rulingArea" hidden aria-live="polite">
+          <p class="section-label">AI ruling</p>
+          <h2 id="rulingTitle"></h2>
+          <p id="rulingExplanation"></p>
+          <div class="answer-reveal">
+            <p><strong>Expected answer:</strong> <span id="expectedAnswer"></span></p>
+            <p><strong>Reference:</strong> <span id="reference"></span></p>
+            <p id="explanation"></p>
+          </div>
+        </section>
+      </section>
+    </section>
+
+    <footer>This practice pilot supports short factual questions only. AI rulings are for learning, not official competition decisions.</footer>
+  </main>
+  <script src="./script.js"></script>
+</body>
+</html>

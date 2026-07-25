@@ -13,7 +13,7 @@ A small factual-question practice app that demonstrates AI answer judgment for n
 2. Start the app:
 
    ```powershell
-   npm start
+   npm.cmd start
    ```
 
 3. Open `http://localhost:3000`.

@@ -7,7 +7,7 @@ const root = __dirname;
 const aiConfigured = Boolean(process.env.OPENAI_API_KEY);
 const contentTypes = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8' };
 
-function send(response, status, body, type='application/json; charset=utf-8') { response.writeHead(status, { 'Content-Type':type, 'Cache-Control':'no-store' }); response.end(typeof body === 'string' ? body : JSON.stringify(body)); }
+function send(response, status, body, type='application/json; charset=utf-8') { response.writeHead(status, { 'Content-Type':type, 'Cache-Control':'no-store' }); response.end(Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body)); }
 function normalise(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim(); }
 function localJudge(question, answer) {
   const alternatives = [question.expected_answer, ...(question.accepted_answers || '').split(';')].map(normalise).filter(Boolean);

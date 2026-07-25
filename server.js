@@ -4,41 +4,62 @@ const path = require('path');
 
 const port = Number(process.env.PORT || 3101);
 const root = __dirname;
-const aiConfigured = Boolean(process.env.OPENAI_API_KEY);
+const rooms = new Map();
+const questions = [
+  'According to John 11:25, who said, “I am the resurrection and the life”?',
+  'To whom did Jesus say, “I am the resurrection and the life”?',
+  'Who baptized Jesus?',
+  'What was the name of the man Jesus raised from the dead in John 11?'
+];
 const contentTypes = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8' };
 
-function send(response, status, body, type='application/json; charset=utf-8') { response.writeHead(status, { 'Content-Type':type, 'Cache-Control':'no-store' }); response.end(Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body)); }
-function normalise(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim(); }
-function localJudge(question, answer) {
-  const alternatives = [question.expected_answer, ...(question.accepted_answers || '').split(';')].map(normalise).filter(Boolean);
-  const received = normalise(answer);
-  const match = alternatives.some(option => received === option || received.includes(option));
-  return match
-    ? { verdict:'correct', explanation:'Your answer matches an approved answer. Configure OPENAI_API_KEY to evaluate broader conversational paraphrases.', source:'exact_match' }
-    : { verdict:'needs_review', explanation:'AI is not configured, so this answer cannot be judged by meaning. Compare it with the expected answer below.', source:'unavailable' };
-}
-async function aiJudge(question, answer) {
-  const prompt = `You judge one short factual Bible-practice answer. Use only the approved material below. Do not use outside knowledge. A natural paraphrase is correct when it communicates the same required fact. If it is incomplete, ambiguous, or you are not confident, return needs_review. Never invent missing facts. Return JSON only with verdict (correct, incorrect, or needs_review) and a concise explanation for the learner.\n\nQuestion: ${question.question}\nExpected answer: ${question.expected_answer}\nApproved alternatives: ${question.accepted_answers || 'None'}\nReference: ${question.reference}\nExplanation: ${question.explanation}\nLearner answer: ${answer}`;
-  const apiResponse = await fetch('https://api.openai.com/v1/responses', { method:'POST', headers:{ 'Authorization':`Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type':'application/json' }, body:JSON.stringify({ model:'gpt-5.6-terra', input:prompt, reasoning:{ effort:'low' }, text:{ verbosity:'low' } }) });
-  const data = await apiResponse.json();
-  if (!apiResponse.ok) throw new Error(data.error?.message || 'The AI service returned an error.');
-  const text = data.output_text || data.output?.flatMap(item => item.content || []).map(item => item.text || '').join('') || '';
-  const json = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || text);
-  if (!['correct','incorrect','needs_review'].includes(json.verdict) || typeof json.explanation !== 'string') throw new Error('The AI judge returned an invalid ruling.');
-  return { verdict:json.verdict, explanation:json.explanation, source:'ai' };
-}
+function send(response, status, body, type = 'application/json; charset=utf-8') { response.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' }); response.end(Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body)); }
+function readJson(request) { return new Promise((resolve, reject) => { let body = ''; request.on('data', chunk => { body += chunk; if (body.length > 20000) request.destroy(); }); request.on('end', () => { try { resolve(JSON.parse(body || '{}')); } catch { reject(new Error('Invalid request.')); } }); }); }
+function cleanCode(value) { return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); }
+function snapshot(room) { return { roomCode: room.code, hostId: room.hostId, players: [...room.players.values()].map(({ id, name }) => ({ id, name })), state: room.state, questionNumber: room.questionIndex + 1 }; }
+function emit(response, event, payload) { response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`); }
+function broadcast(room, event, payload) { for (const response of room.connections.values()) emit(response, event, payload); }
+function broadcastRoom(room) { broadcast(room, 'room', snapshot(room)); }
+function getRoom(url) { const match = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]+)(?:\/|$)/); return match ? rooms.get(match[1]) : null; }
+
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
-  if (request.method === 'GET' && url.pathname === '/api/health') return send(response, 200, { aiConfigured });
-  if (request.method === 'POST' && url.pathname === '/api/judge') {
-    let body=''; request.on('data', chunk => { body += chunk; if(body.length > 100000) request.destroy(); });
-    request.on('end', async () => { try { const { question, answer } = JSON.parse(body); if (!question?.question || !question?.expected_answer || !String(answer || '').trim()) return send(response, 400, { error:'A question and answer are required.' }); const result=aiConfigured ? await aiJudge(question, String(answer).trim()) : localJudge(question, answer); send(response,200,result); } catch(error) { send(response,502,{ error:error.message || 'Unable to judge this answer.' }); } });
-    return;
+  if (request.method === 'GET' && url.pathname === '/api/health') return send(response, 200, { ok: true, rooms: rooms.size });
+
+  if (request.method === 'POST' && url.pathname === '/api/rooms/join') {
+    try {
+      const { roomCode, name, playerId } = await readJson(request); const code = cleanCode(roomCode); const safeName = String(name || '').trim().slice(0, 24); const safeId = String(playerId || '').trim().slice(0, 80);
+      if (!code || !safeName || !safeId) return send(response, 400, { error: 'Room code and display name are required.' });
+      let room = rooms.get(code); if (!room) { room = { code, hostId: safeId, players: new Map(), connections: new Map(), state: 'waiting', questionIndex: -1, winnerId: null }; rooms.set(code, room); }
+      if (!room.players.has(safeId) && room.players.size >= 2) return send(response, 409, { error: 'This demo room already has two players.' });
+      room.players.set(safeId, { id: safeId, name: safeName }); broadcastRoom(room); return send(response, 200, snapshot(room));
+    } catch (error) { return send(response, 400, { error: error.message }); }
   }
+
+  const room = getRoom(url);
+  if (request.method === 'GET' && room && url.pathname.endsWith('/events')) {
+    const playerId = url.searchParams.get('playerId'); if (!room.players.has(playerId)) return send(response, 403, { error: 'Join the room first.' });
+    response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' }); response.write(': connected\n\n');
+    const previous = room.connections.get(playerId); if (previous) previous.end(); room.connections.set(playerId, response); emit(response, 'snapshot', snapshot(room));
+    request.on('close', () => { if (room.connections.get(playerId) === response) room.connections.delete(playerId); }); return;
+  }
+  if (request.method === 'POST' && room && url.pathname.endsWith('/start')) {
+    try {
+      const { playerId } = await readJson(request); if (playerId !== room.hostId) return send(response, 403, { error: 'Only the room host can start a question.' }); if (room.players.size < 2) return send(response, 409, { error: 'Wait for a second player to join.' });
+      room.questionIndex = (room.questionIndex + 1) % questions.length; room.state = 'reading'; room.winnerId = null; const payload = { question: questions[room.questionIndex], questionNumber: room.questionIndex + 1, startAt: Date.now() }; broadcast(room, 'start', payload); broadcastRoom(room); return send(response, 200, payload);
+    } catch (error) { return send(response, 400, { error: error.message }); }
+  }
+  if (request.method === 'POST' && room && url.pathname.endsWith('/buzz')) {
+    try {
+      const { playerId } = await readJson(request); if (!room.players.has(playerId)) return send(response, 403, { error: 'Join the room first.' });
+      if (room.state !== 'reading' || room.winnerId) { const winner = room.players.get(room.winnerId); return send(response, 200, { accepted: false, winnerId: room.winnerId, winnerName: winner?.name || 'Another player' }); }
+      room.winnerId = playerId; room.state = 'locked'; const winner = room.players.get(playerId); const payload = { accepted: true, winnerId: playerId, winnerName: winner.name }; broadcast(room, 'buzz', payload); broadcastRoom(room); return send(response, 200, payload);
+    } catch (error) { return send(response, 400, { error: error.message }); }
+  }
+
   if (request.method !== 'GET') return send(response, 405, 'Method not allowed', 'text/plain; charset=utf-8');
-  const requested = url.pathname === '/' ? '/index.html' : url.pathname;
-  const file = path.resolve(root, `.${requested}`);
-  if (!file.startsWith(root)) return send(response,403,'Forbidden','text/plain; charset=utf-8');
-  fs.readFile(file, (error, data) => error ? send(response,404,'Not found','text/plain; charset=utf-8') : send(response,200,data,contentTypes[path.extname(file)] || 'application/octet-stream'));
+  const requested = url.pathname === '/' ? '/index.html' : url.pathname; const file = path.resolve(root, `.${requested}`);
+  if (!file.startsWith(root)) return send(response, 403, 'Forbidden', 'text/plain; charset=utf-8');
+  fs.readFile(file, (error, data) => error ? send(response, 404, 'Not found', 'text/plain; charset=utf-8') : send(response, 200, data, contentTypes[path.extname(file)] || 'application/octet-stream'));
 });
-server.listen(port, () => console.log(`QuizBiblo running at http://localhost:${port}`));
+server.listen(port, () => console.log(`QuizBiblo buzz demo running at http://localhost:${port}`));

@@ -1,42 +1,21 @@
-# QuizBiblo AI Practice Pilot
+# QuizBiblo Two-Player Buzz Test
 
-A small factual-question practice app that demonstrates AI answer judgment for natural, conversational responses.
+A local web demo for testing first-buzz behavior between two browsers.
 
-## Run locally
+## Run it
 
-1. Set an OpenAI API key for this PowerShell session:
-
-   ```powershell
-   $env:OPENAI_API_KEY = "your_api_key"
-   ```
-
-2. Start the app:
-
-   ```powershell
-   npm.cmd start
-   ```
-
-3. Open `http://localhost:3101`.
-
-The key stays on the server and is never sent to the browser. Without a key, the app remains usable but only accepts direct approved-answer matches; all other answers are returned as **Needs review**.
-
-## Pilot interaction
-
-- Press **Start question**.
-- Press **Space** at any time while the question is appearing to buzz in and stop it.
-- Type the answer, or focus the answer box and use Windows Voice Typing with **Windows + H**.
-- Press **Enter** to submit.
-
-## Import format
-
-Import CSV or TSV with these exact columns:
-
-```text
-question,expected_answer,accepted_answers,reference,explanation
+```powershell
+npm.cmd start
 ```
 
-Each row must be a single, factual question with an approved expected answer, optional semicolon-separated alternatives, scripture reference, and short explanation.
+Open `http://localhost:3101` on two computers that can reach the same server. For a quick local test, use two browser windows on the same computer.
 
-## Safety boundary
+## Test the buzz
 
-This is a study/practice tool. AI evaluates only the imported approved question data and should not be treated as an official competition ruling.
+1. Player one enters a name and selects **Create room**.
+2. Share the displayed room code with player two.
+3. Player two enters a name, the same room code, and selects **Join room**.
+4. The host selects **Start question**.
+5. Both players press **Space** while the question is reading.
+
+The server accepts the first buzz it receives, locks the other player out, and shows the same winner on both screens. This is a shared-room demo only; it does not yet score or judge answers.

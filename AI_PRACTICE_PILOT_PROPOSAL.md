@@ -1,104 +1,117 @@
-# QuizBiblo AI Practice Pilot
+# QuizBiblo AI Two-Player Practice Pilot
 
 ## Decision requested
 
-Approve a small first release that proves QuizBiblo’s defining value: a quizzer can answer naturally, in their own words, and the system can determine whether the **meaning** is correct. This pilot is a learning tool, not an official competition judge.
+Approve a small hosted web application that lets **two players on separate Windows computers** practise a live Bible-quiz interaction. The pilot proves two things at once:
 
-The pilot deliberately avoids building a complete quiz platform. It focuses on one question category, one import format, one quiz interaction, and one visible use of AI.
+1. the first player to press **Space** wins the opportunity to respond; and
+2. AI can fairly judge a conversational question completion and answer rather than requiring exact wording.
 
-## The problem we are solving
+This is a learning and demonstration tool, not an official competition judge or a full tournament platform.
 
-Traditional quiz software compares a response to a stored answer. That works when the expected response is a single word, but it fails in normal conversation. A learner may say, “It was Jesus speaking to Martha,” while the expected answer is stored as “Jesus said it to Martha.” The words are not identical, but the answer is correct.
+## The experience to demonstrate
 
-QuizBiblo should not act like a simple answer-key checker. Its first promise is to accept a reasonable conversational answer, explain why it is correct or incomplete, and safely identify answers that need a person’s review.
+Two players open the same web link, enter the same room code, and join a two-player match. The question is displayed progressively on both screens to simulate a quizmaster reading it.
 
-## Recommended first scope: short factual questions
+1. The server starts the question for both players at the same moment.
+2. Either player can press **Space** while it is being read.
+3. The server—not either browser—records the first valid buzz and locks the other player out.
+4. The question stops on both screens. The successful player must first **complete the interrupted question**, then give the answer.
+5. AI rules the completion and answer as Correct, Incorrect, or Needs review, explaining why.
+6. If the first player’s interrupted response is not accepted, the question is reread to the other player, who receives the same opportunity to buzz, complete the question if needed, and answer.
 
-The first question type will be **short factual questions**: questions with one clear, scripture-supported fact such as a person, place, action, or recipient.
+This is the smallest useful version of the real competitive dynamic. It makes the live race visible, while preserving fairness by having one shared server decide the winner rather than trusting whichever browser reports a click first.
 
-Examples:
+## The first question category
 
-| Question | Approved answer | Valid conversational response |
-|---|---|---|
-| Who said, “I am the resurrection and the life”? | Jesus | “It was Jesus.” |
-| To whom did Jesus say this? | Martha | “He was speaking to Martha.” |
-| What city was Jesus born in? | Bethlehem | “Jesus was born in Bethlehem.” |
+The first pilot should use **Regular / Interrogative factual questions** only: a person, place, action, recipient, or detail that is explicitly stated in the selected scripture.
 
-This category is the right first choice because it makes the AI value easy to demonstrate and easy to test. It does **not** require the stricter rules needed for verse recitation, quotations, references, timing rules, or multi-part specialty questions.
+Example official question:
 
-The first pilot will not include memory verses, Finish the Verse, quotation grading, live multiplayer, physical buzzers, spoken quizmaster audio, accounts, or analytics. Those are valuable later, but they would delay the proof that AI can judge meaning fairly.
+> According to John 11:25, who said, “I am the resurrection and the life”?
 
-## User experience
+If Player A buzzes after “According to John 11:25,” the player might complete the question with, “Who said, ‘I am the resurrection and the life’?” and answer, “Jesus.”
 
-The experience will simulate the live quiz dynamic with simple keyboard controls and visible text.
+The wording need not be identical. The completion must still ask the same basic question and lead to the same approved answer. AI is useful here because it can distinguish a valid paraphrase from a completion that changes the requested fact.
 
-1. A coach or learner imports an approved list of questions and answers.
-2. The question appears on screen as though a quizmaster is reading it.
-3. The learner presses **Space** at any point to buzz in. The question immediately stops, so the learner does not see the unfinished question.
-4. An answer box receives focus. The learner types an answer and presses **Enter** to submit it.
-5. If the learner prefers to speak, they can use Windows Voice Typing in the focused answer box with **Windows + H**, then check the text before submitting.
-6. QuizBiblo returns **Correct**, **Incorrect**, or **Needs review**, followed by a short explanation, the expected answer, and the scripture reference.
+The pilot will not begin with quotation, Finish-the-Verse, quotation-completion, reference, or memory questions. Those question families have distinct interruption and precision rules and would make the first demonstration harder to validate.
 
-This interaction demonstrates interruption and conversational response without making speech recognition, text-to-speech, or microphone recording part of the first build.
+## What the research says about interruption
+
+The project’s BibleQ research identifies Regular, Memory, Reference, Situation, FTV, FTVR, and Quote as question types. The **complete-the-question rule is not one of those types**; it is an *interrupted-question procedure* applied while a question is being read.
+
+Current Bible-quiz rules state that, for an interrupted question, the player’s completion must require the same answer, contain no incorrect information, respect the introductory remarks, and ask the same basic question—even if the wording differs. They also specify that an interrupted question ruled incorrect is reread to the opposing team. [Simplified Bible Quiz Rules](https://biblequiz.com/assets/2026/25-26_TBQ-Simplified-Rules.pdf)
+
+For this reason, the pilot will use only Regular / Interrogative factual questions. Quotation, scripture-text, and completion questions receive special interruption treatment in published rules, so they belong in a later ruleset rather than this first demo. [BibleQuiz training guidance](https://biblequiz.com/tbq/training/quizzers/)
 
 ## Question import
 
-Question banks should be imported rather than typed into the application one at a time. Coaches and quiz teams often already maintain their questions in spreadsheets, and importing lets the team begin with its own reviewed material.
-
-The initial importer accepts CSV or TSV files with these columns:
+A coach or team imports an approved CSV or TSV question bank. Each row supplies all information the AI needs to rule the interaction transparently:
 
 | Column | Purpose |
 |---|---|
-| `question` | The exact prompt shown to the learner |
+| `question` | The official full question |
 | `expected_answer` | The primary approved answer |
-| `accepted_answers` | Optional alternatives, separated by semicolons |
-| `reference` | The supporting scripture location |
-| `explanation` | A short teaching explanation shown after the ruling |
+| `accepted_answers` | Semicolon-separated approved alternatives |
+| `reference` | Supporting scripture location |
+| `explanation` | Short teaching explanation |
+| `interruption_requirements` | The essential question components that must remain true when a player completes it |
 
-Only clear, factual, source-supported questions should be imported for the pilot. Each item must have one intended answer and any approved aliases prepared by the content owner. Imported questions remain the responsibility of the organisation that owns or is licensed to use them.
+The `interruption_requirements` field is important. It allows the AI to check whether a player changed the question while completing it, instead of only checking whether their final answer happened to be correct.
 
-## How the AI judge works
+## AI ruling model
 
-The AI receives only the approved material for the current question:
-
-- the question;
-- expected answer and approved alternatives;
-- scripture reference and explanation; and
-- the learner’s submitted text.
-
-It returns one of three decisions:
+For an interrupted question, the AI receives the official question, the visible portion heard before the buzz, the approved answer data, the interruption requirements, and the player’s completion and answer.
 
 | Decision | Meaning |
 |---|---|
-| **Correct** | The learner communicated the required fact, including an acceptable paraphrase. |
-| **Incorrect** | The learner clearly gave a conflicting fact. |
-| **Needs review** | The response is incomplete, ambiguous, or not sufficiently certain to rule automatically. |
+| **Correct** | The completion asks the same basic question and the answer communicates the approved fact. |
+| **Incorrect** | The completion changes the question, introduces a conflicting fact, or the answer is clearly wrong. |
+| **Needs review** | The completion or answer is incomplete, ambiguous, or uncertain. |
 
-The result must be explainable. For example: “Correct — ‘Jesus was speaking to Martha’ communicates the approved answer, ‘Jesus said it to Martha.’” Or: “Needs review — your answer identifies Jesus but does not identify Martha, which this question requires.”
+Example explanation:
 
-The AI must not invent facts, search for an answer outside the approved question data, or silently turn an unclear answer into a wrong answer. When AI is unavailable, the app may accept a direct approved match but must otherwise return **Needs review** rather than claim it made a semantic ruling.
+> Correct — “Who said, ‘I am the resurrection and the life’?” keeps the same requested fact, and “Jesus” is the approved answer.
+
+The AI operates only on the approved imported question data. It must not invent scripture facts or silently mark an unclear response wrong. A non-AI fallback can recognise exact approved answers, but must otherwise return **Needs review**.
+
+## Hosting and shared-match design
+
+This must be a web application, not a file opened separately on each computer. The client can be hosted through Sites, but the live-match feature also needs a server-side shared room: a player’s Space press must be sent to one authoritative service that records the first eligible buzz and broadcasts the result to both players.
+
+Sites supports deployment of Workers-compatible web applications and can include a D1 data binding for stored records. For the pilot, the hosted application should use a shared real-time match service for the active room, with persistent storage only for question banks and match results. The exact real-time provider can be selected during implementation; the proposal requires the behavior, not a specific vendor.
+
+```text
+Player A browser ─┐                         ┌─ Player B browser
+                  ├── Hosted app + match room ┤
+                  │    first-buzz decision    │
+                  └── AI completion/answer ──┘
+```
+
+The system records server receipt time and a sequence number for each buzz, announces the winner to both players, and ignores later buzzes for that question. This is sufficient for a fair Internet demonstration; it should not claim to reproduce physical-buzzer timing at official-event precision.
 
 ## Guardrails
 
-- This is a practice tool; it is not an official competition ruling system.
-- A human content owner approves every question, expected answer, and accepted alternative.
-- AI operates only on the approved current question data.
-- Uncertain answers become **Needs review**, never an automatic incorrect ruling.
-- The learner sees the expected answer, reference, and explanation after each response.
-- The first pilot does not store raw voice recordings. Windows Voice Typing supplies text that the learner can review before submission.
+- Only two players per pilot room; no accounts are required for the first demo.
+- A player joins with a display name and a room code; no voice recording is stored.
+- Typed answers are the default. A player may use Windows Voice Typing (`Windows + H`) in the focused answer box and review the resulting text before submission.
+- Every item is human-reviewed and grounded in a cited scripture reference.
+- Rulings remain practice-only and show the official answer and reference after the turn.
+- Network delay is disclosed. The server’s first received buzz wins; the feature is a practice simulation, not official hardware timing.
 
 ## Success criteria
 
-The pilot is ready for a team demonstration when a user can:
+The pilot is ready to present when two people on different Windows PCs can:
 
-1. Import a small factual question bank.
-2. Start a question and press Space to interrupt it.
-3. Type or dictate a natural-language answer.
-4. Receive a clear ruling and explanation.
-5. See the approved answer and scripture reference.
+1. Join the same hosted room.
+2. See the same question begin at the same time.
+3. Press Space; both screens agree on who buzzed first.
+4. Have the winner complete an interrupted factual question and provide an answer.
+5. Receive an AI explanation of the ruling.
+6. See the question reread to the other player after a rejected first response.
 
-Before broad release, the team should test at least 20 planned answer variations, including correct paraphrases, accepted aliases, incomplete answers, ambiguous answers, and clearly incorrect answers. The target is not to eliminate human judgment; it is to show that QuizBiblo handles natural language better than exact text matching while keeping unclear cases safe.
+The team should prepare at least 20 test cases covering correct paraphrases, changed-question completions, correct answers to an incorrectly completed question, incomplete answers, and clear wrong answers. Success means the app demonstrates shared live state and safe semantic judgment—not that it replaces an official human judge.
 
 ## Approval outcome
 
-Approval authorizes a focused pilot: **imported short factual questions, Space-to-buzz interaction, typed or dictated responses, and transparent AI answer judgment**. After the pilot demonstrates reliable value, the next decision can be whether to add Situation questions, Reference questions, longer memory work, or voice-led quizmaster features.
+Approval authorizes a focused web pilot: **two-player rooms, server-authoritative Space-to-buzz, Regular / Interrogative factual questions, AI-judged question completion plus answer, and reread-to-opponent flow.** Quotation, memory, Finish-the-Verse, official scoring, teams larger than two, and advanced voice interaction follow only after this shared-room demonstration is accepted.

@@ -41,4 +41,8 @@ Original prompt: Increment the site version and follow the complete GitHub and C
 - Created a new Sites project with the `quizbiblo` slug.
 - Updated the repository binding and deployment instructions to the new project.
 - The previous `quizbiblo-buzz-test` project remains available as a fallback.
-- TODO: Push the migration to GitHub, deploy the new public site, and verify the clean URL.
+- Pushed migration commit `94290ae` to GitHub and the new Sites source repository.
+- Published Sites version 1 and confirmed the deployment succeeded at
+  `https://quizbiblo.eveandk.chatgpt.site`.
+- Fresh-browser verification returned HTTP 200 with title `QuizBiblo`, build 0.1.4,
+  no old `buzz test` label, and no console errors.

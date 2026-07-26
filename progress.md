@@ -8,3 +8,11 @@ Original prompt: Increment the site version and follow the complete GitHub and C
 - Playwright rendered the local site without a reported console failure.
 - Visually confirmed `Build version: 0.1.2` in the local browser screenshot.
 - TODO: Push the exact commit to GitHub and Sites, deploy it, and verify production.
+
+## 2026-07-25 - Version 0.1.3
+
+- Incremented the visible and package versions from 0.1.2 to 0.1.3.
+- `npm run check` passed for version 0.1.3.
+- Playwright rendered the local site without a reported console failure.
+- Visually confirmed `Build version: 0.1.3` in the local browser screenshot.
+- TODO: Push to GitHub and Sites, deploy, and verify production.

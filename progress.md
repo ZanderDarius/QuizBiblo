@@ -32,4 +32,6 @@ Original prompt: Increment the site version and follow the complete GitHub and C
 - Incremented the visible and package versions to 0.1.4.
 - `npm run check` and `npm test` passed.
 - Playwright visually confirmed the local page shows `QuizBiblo` and version 0.1.4 without the old demo label.
-- TODO: Push to GitHub and Sites, deploy, update Sites metadata, and verify production.
+- GitHub and Sites source repositories were synchronized at the deployment commit.
+- Sites version 5 deployed successfully and the Sites display title is now `QuizBiblo`.
+- Production verification confirmed title `QuizBiblo`, build 0.1.4, no old demo naming, and no console errors.

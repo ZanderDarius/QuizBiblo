@@ -24,3 +24,12 @@ Original prompt: Increment the site version and follow the complete GitHub and C
 - Verified the production response and a fresh Playwright screenshot both show `Build version: 0.1.3`.
 - GitHub and the Sites source repository were synchronized before deployment.
 - Suggestion: clean up the pre-existing mojibake characters visible in some labels during a future UI pass.
+
+## 2026-07-26 - QuizBiblo product naming
+
+- Renamed the browser and visible site branding to simply `QuizBiblo`.
+- Removed `buzz test` and `demo` language from the product-facing page.
+- Incremented the visible and package versions to 0.1.4.
+- `npm run check` and `npm test` passed.
+- Playwright visually confirmed the local page shows `QuizBiblo` and version 0.1.4 without the old demo label.
+- TODO: Push to GitHub and Sites, deploy, update Sites metadata, and verify production.

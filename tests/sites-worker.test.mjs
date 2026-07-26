@@ -15,7 +15,10 @@ async function request(path, method = 'GET', body) {
 test('serves the current site version', async () => {
   const response = await request('/');
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /Build version: 0\.1\.3/);
+  const html = await response.text();
+  assert.match(html, /<title>QuizBiblo<\/title>/);
+  assert.match(html, /Build version: 0\.1\.4/);
+  assert.doesNotMatch(html, /buzz test|live-room demo/i);
 });
 
 test('supports the two-player room lifecycle', async () => {

@@ -1,4 +1,4 @@
-# QuizBiblo Two-Player Buzz Test
+# QuizBiblo
 
 A local web demo for testing first-buzz behavior between two browsers.
 
@@ -18,4 +18,4 @@ Open `http://localhost:3101` on two computers that can reach the same server. Fo
 4. The host selects **Start question**.
 5. Both players press **Space** while the question is reading.
 
-The server accepts the first buzz it receives, locks the other player out, and shows the same winner on both screens. This is a shared-room demo only; it does not yet score or judge answers.
+The server accepts the first buzz it receives, locks the other player out, and shows the same winner on both screens. The current version focuses on shared-room play and first-buzz handling; scoring and answer judging come next.

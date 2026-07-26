@@ -20,4 +20,7 @@ Original prompt: Increment the site version and follow the complete GitHub and C
 - Added a Sites-compatible build that packages static assets and the room API worker.
 - The first worker test exposed unreplaced repeated asset placeholders; updated the build to replace every occurrence.
 - `npm run check` and `npm test` now pass, including the Sites worker lifecycle test.
-- TODO: Create a new commit/version, redeploy, and verify production.
+- Sites version 4 deployed successfully with the packaged worker.
+- Verified the production response and a fresh Playwright screenshot both show `Build version: 0.1.3`.
+- GitHub and the Sites source repository were synchronized before deployment.
+- Suggestion: clean up the pre-existing mojibake characters visible in some labels during a future UI pass.

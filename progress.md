@@ -35,3 +35,10 @@ Original prompt: Increment the site version and follow the complete GitHub and C
 - GitHub and Sites source repositories were synchronized at the deployment commit.
 - Sites version 5 deployed successfully and the Sites display title is now `QuizBiblo`.
 - Production verification confirmed title `QuizBiblo`, build 0.1.4, no old demo naming, and no console errors.
+
+## 2026-07-26 - Clean public URL
+
+- Created a new Sites project with the `quizbiblo` slug.
+- Updated the repository binding and deployment instructions to the new project.
+- The previous `quizbiblo-buzz-test` project remains available as a fallback.
+- TODO: Push the migration to GitHub, deploy the new public site, and verify the clean URL.

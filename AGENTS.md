@@ -5,7 +5,7 @@ agents working in this repository.
 
 ## Production Site
 
-- Public URL: https://quizbiblo-buzz-test.eveandk.chatgpt.site
+- Public URL: https://quizbiblo.eveandk.chatgpt.site
 - GitHub repository: https://github.com/ZanderDarius/QuizBiblo
 - Sites project binding: `.openai/hosting.json`
 - Production branch: `main`
@@ -115,7 +115,7 @@ Both are required for deployable changes.
 ### 7. Refresh and Verify Production
 
 - Open or reuse the production URL:
-  https://quizbiblo-buzz-test.eveandk.chatgpt.site
+  https://quizbiblo.eveandk.chatgpt.site
 - Refresh the page after deployment succeeds. Use a hard refresh when stale
   cached assets are possible.
 - Verify the requested UI, text, version badge, or behavior on the hosted page,

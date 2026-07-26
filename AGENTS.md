@@ -10,6 +10,10 @@ agents working in this repository.
 - Sites project binding: `.openai/hosting.json`
 - Production branch: `main`
 
+The GitHub source is currently a Node-served static application built from
+`index.html`, `styles.css`, `script.js`, and `server.js`. Preserve that
+architecture unless the user explicitly requests a migration.
+
 The `project_id` in `.openai/hosting.json` identifies the existing ChatGPT
 Sites project. Reuse it. Never create a replacement site while that value is
 present.
@@ -60,20 +64,21 @@ site or the user explicitly requests one.
 
 ### 3. Validate Locally
 
-- Run the relevant tests and production build.
-- The normal build command is `npm run build`.
-- On Windows, if the package script fails only because its POSIX-style
-  environment assignment is unsupported, run the equivalent PowerShell form:
+- Run the project's syntax validation:
 
 ```powershell
-$env:WRANGLER_LOG_PATH = '.wrangler/wrangler.log'
-.\node_modules\.bin\vinext.cmd build
+npm run check
 ```
 
-- Fix product or compilation failures before deployment.
-- Do not describe a change as validated if the build did not pass. If a local
-  toolchain problem remains but the hosted builder succeeds, report that
-  distinction accurately.
+- Start the local server with `npm start` when browser behavior needs testing.
+- This project does not currently define an `npm run build` command. Do not
+  invent one or use the temporary Vinext app's build instructions.
+- Before a Sites deployment, use the current Sites tooling to produce and
+  validate any required deployment output. If the hosting platform requires a
+  build format the current static project does not provide, stop and adapt the
+  project deliberately rather than silently deploying stale output.
+- Fix syntax, packaging, or runtime failures before deployment. Do not describe
+  a change as validated if the relevant check did not pass.
 
 ### 4. Commit and Push to GitHub
 
@@ -133,4 +138,3 @@ The final response for a deployable change must state:
 
 Do not call the work complete while deployment is still processing or before
 the live result has been checked.
-

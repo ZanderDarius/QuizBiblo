@@ -28,20 +28,48 @@ test('supports the two-player room lifecycle', async () => {
   assert.equal((await request('/api/rooms/join', 'POST', host)).status, 200);
   assert.equal((await request('/api/rooms/join', 'POST', guest)).status, 200);
 
-  const started = await request('/api/rooms/TEST13/start', 'POST', { playerId: host.playerId });
+  const started = await request(`/api/rooms/${host.roomCode}/start`, 'POST', { playerId: host.playerId });
   assert.equal(started.status, 200);
+  const startedState = await started.json();
 
-  const firstBuzz = await request('/api/rooms/TEST13/buzz', 'POST', { playerId: guest.playerId });
-  assert.deepEqual(await firstBuzz.json(), {
-    accepted: true,
-    winnerId: guest.playerId,
-    winnerName: guest.name,
-  });
+  const firstBuzz = await request('/api/rooms/TEST13/buzz', 'POST', { playerId: guest.playerId, attemptId: startedState.attemptId });
+  const firstBody = await firstBuzz.json();
+  assert.equal(firstBody.accepted, true);
+  assert.equal(firstBody.room.winnerId, guest.playerId);
+  assert.equal(firstBody.stale, undefined);
 
-  const secondBuzz = await request('/api/rooms/TEST13/buzz', 'POST', { playerId: host.playerId });
-  assert.deepEqual(await secondBuzz.json(), {
-    accepted: false,
-    winnerId: guest.playerId,
-    winnerName: guest.name,
+  const secondBuzz = await request('/api/rooms/TEST13/buzz', 'POST', { playerId: host.playerId, attemptId: startedState.attemptId });
+  assert.equal(secondBuzz.status, 200);
+  const secondBody = await secondBuzz.json();
+  assert.equal(secondBody.accepted, false);
+  assert.equal(secondBody.room.winnerId, guest.playerId);
+});
+
+test('supports Issue 2 race-safe first buzz and stale attempts', async () => {
+  const host = { roomCode: 'TEST14', name: 'Mara', playerId: 'host-14' };
+  const guest = { roomCode: 'TEST14', name: 'Liam', playerId: 'guest-14' };
+  const rival = { roomCode: 'TEST14', name: 'Noah', playerId: 'rival-14' };
+
+  assert.equal((await request('/api/rooms/join', 'POST', host)).status, 200);
+  assert.equal((await request('/api/rooms/join', 'POST', guest)).status, 200);
+  assert.equal((await request('/api/rooms/join', 'POST', rival)).status, 409);
+
+  const started = await request(`/api/rooms/${host.roomCode}/start`, 'POST', { playerId: host.playerId });
+  assert.equal(started.status, 200);
+  const startBody = await started.json();
+  assert.ok(startBody.attemptId > 0);
+
+  const first = request(`/api/rooms/${host.roomCode}/buzz`, 'POST', { playerId: host.playerId, attemptId: startBody.attemptId });
+  const second = request(`/api/rooms/${host.roomCode}/buzz`, 'POST', { playerId: guest.playerId, attemptId: startBody.attemptId });
+  const race = await Promise.all([first, second]);
+  const raceBody = await Promise.all(race.map((response) => response.json()));
+  assert.equal(raceBody.filter((result) => result.accepted === true).length, 1);
+
+  const stale = await request(`/api/rooms/${host.roomCode}/buzz`, 'POST', {
+    playerId: guest.playerId,
+    attemptId: startBody.attemptId + 100,
   });
+  const staleBody = await stale.json();
+  assert.equal(staleBody.accepted, false);
+  assert.equal(staleBody.stale, true);
 });

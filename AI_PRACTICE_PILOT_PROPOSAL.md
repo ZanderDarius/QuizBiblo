@@ -1,4 +1,9 @@
+<<<<<<< Updated upstream
 # QuizBiblo Voice-First AI Practice Pilot Proposal
+=======
+# QuizBiblo AI Two-Player Practice Pilot
+Version: 1.3
+>>>>>>> Stashed changes
 
 ## Decision requested
 
@@ -341,6 +346,7 @@ The pilot is ready for a decision when two students on separate Windows PCs can:
 10. Demonstrate that no Azure key, grading key, or raw microphone audio appears
     in the browser, repository, issue history, logs, or stored match record.
 
+<<<<<<< Updated upstream
 Success means the hosted app demonstrates a credible, safe spoken practice turn.
 It does not mean the app is approved as an official competition judge.
 
@@ -351,3 +357,78 @@ It does not mean the app is approved as an official competition judge.
 - [Azure Speech text-to-speech REST API](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech)
 - [Azure Speech synthesis and word-boundary events](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/how-to-speech-synthesis)
 - Local setup reference: `WritingTools/docs/Azure Speech Read-Aloud Setup.md`
+=======
+Approval authorizes a focused web pilot: **two-player rooms, server-authoritative Space-to-buzz, Regular / Interrogative factual questions, AI-judged question completion plus answer, and reread-to-opponent flow.** Quotation, memory, Finish-the-Verse, official scoring, teams larger than two, and advanced voice interaction follow only after this shared-room demonstration is accepted.
+
+## Issue #1 completion: Frozen voice-first turn contract
+
+This section is the approved behavioral contract for all implementation that follows.
+
+### State contract
+
+| State | Server event / trigger | Actor | Timer | Enabled controls | Permitted speaker | Cancellation behavior |
+|---|---|---|---|---|---|---|
+| `waiting` | Match created and at least one player joins | Server | None | Start question (host), Leave room | None | If both players leave, match returns to idle. |
+| `preparing` | Host starts question | Server | `prep_countdown_ms = 2000` | (disabled for both) | None | If a player disconnects before start, host is notified; match pauses until both rejoin or host cancels. |
+| `reading` | Countdown complete | Server | `read_in_progress`; optional host can pause only for sync only | Space (for both), Leave | Both players can attempt a buzz | No buzz acceptance outside this window. |
+| `buzz_pending` | First eligible Space event arrives in `reading` | Server | `buzz_window_ms = 5000` | Host: none; players: none during lock | Winner candidate only until `first_buzz` locked | Late/duplicate buzzes ignored. Opponent lockout starts immediately on first valid buzz. |
+| `identifying` | First buzz locked and candidate chosen | Server | `winner_identification_audio_ms = 1200` | None (audio-only) | Only Quizmaster narration audio plays | New buzz events ignored. |
+| `responding` | Winner-identification audio ended | Server | `response_window_ms = 30000` (combined completion + answer) | Dictation/typed response controls (winner only) | Only winning player. | Timeout, disconnect, or review request exits by timeout/reconnect rule. |
+| `grading` | Winner submits completion and answer or window expires | Server -> AI service | `ai_rule_ms <= 5000` | None | None | Player cannot edit once submitted. If AI fails, mark `needs_review` and go to `review`. |
+| `review` | AI marks `needs_review` or system ambiguity | Server / Coach override only | `manual_review_ms = 15000` | Reveal answer card, Coach: `override=correct|incorrect`, Player: none | No player speech. | If review times out, default to `needs_review` and treat as incorrect for game flow unless coach intervenes. |
+| `reread` | `incorrect`, `needs_review`, or first-run timeout | Server | `read_in_progress` for opponent question + `buzz_window_ms = 5000` | Space (opponent only), Leave | Opponent only after buzzer lock reset | Opponent is not told the first responder’s completion verbatim before the end of the reread cycle. |
+| `resolved` | Successful grade and any optional explanation shown | Server | `post_turn_hold_ms = 1500` | Next question or exit room | None | Returns to `preparing` for same question if using fallback flow, otherwise returns `waiting` for next item. |
+
+### Canonical spoken prompts
+
+1. `listener_start`: “Listene. Starting turn.”
+2. `winner_identified`: “{winner} has buzzed first.”
+3. `winner_instruction`: “Please complete the question and then answer. You have thirty seconds. Keep your microphone clear.”
+4. `buzz_disabled`: “Opponent buzzed first. Please hold.” (to non-winner only during `responding`)
+5. `response_timeout`: “Time is up.”
+6. `ruling_correct`: “Correct. Excellent read and answer.”
+7. `ruling_incorrect`: “Not correct. Re-reading to opponent.”
+8. `ruling_review`: “Needs review. This will be evaluated by review.”
+9. `reread_notice`: “New turn for your team.”
+
+### Hidden information policy
+
+- During `responding`, `grading`, and unresolved `review`, the non-active player sees only opponent buzz status, not the spoken completion text.
+- The active player’s completion text is hidden from the opponent until the current `reread` cycle for that question resolves.
+- Both players can see the final decision outcome and reference after transition to `resolved`.
+
+### Edge-case behavior
+
+- **Reconnection (`disconnect` then reconnect)**:  
+  - In `reading`, `buzz_pending`, `responding`, or `reread`, a reconnecting user returns to last known state. If absent past `1` heartbeat interval, their lock state is preserved but timer continues for existing active opponent.
+  - If both players disconnect, host can `extend_match_grace_ms = 120000`; when expired without both players returning, match auto-cancels to `waiting`.
+- **Duplicate/late event**: duplicate Space while any state beyond `reading` is ignored if not permitted by state; late Space arriving outside `reading` is logged with `ignored_late_buzz` and rejected.
+- **Timeout**:  
+  - In `buzz_pending`, timeout with no buzz advances to `resolved` with no winner and no grading.
+  - In `responding`, timeout moves to `incorrect` flow and then `reread`.
+- **Player departure**: if non-active player leaves in `reading`/`buzz_pending`, match continues. If winner leaves in `responding`, immediate `incorrect` path and `reread`.
+
+### Completion-before-answer and protected reread mapping
+
+- The `responding` timer (`30s`) starts only after winner-identification audio ends.
+- The winner must provide both completion and answer within that same 30s window.
+- If grading fails (`incorrect` or `needs_review`), do not accept any subsequent attempt by same winner on that question.
+- The question is `reread` to the opponent, who receives a fresh `buzz_pending` window from the reread start.
+
+### Accepted event traces
+
+1. Happy path (winner correct)
+   - `match_created -> waiting -> host_starts -> preparing -> reading -> space_from_playerA (valid) -> buzz_pending -> winner_identified -> identifying -> winner_identification_audio_end -> responding -> completion+answer_submitted -> grading -> ruling_correct -> resolved`
+2. Incorrect then reread path
+   - `match_created -> waiting -> preparing -> reading -> space_from_playerA -> buzz_pending -> identifying -> responding -> completion+answer_submitted -> grading -> ruling_incorrect -> reread -> space_from_playerB -> identifying -> responding -> completion+answer_submitted -> grading -> ruling_correct -> resolved`
+3. Needs review path
+   - `match_created -> waiting -> preparing -> reading -> space_from_playerB -> buzz_pending -> identifying -> responding -> completion+answer_submitted -> grading -> ruling_review -> review -> coach_override(correct|incorrect) -> (if correct then resolved, if incorrect then reread -> ... resolved)`
+4. Timeout path
+   - `match_created -> waiting -> preparing -> reading -> space_from_playerA -> buzz_pending -> identifying -> responding -> response_timeout -> grading_timeout -> reroute_to_reread -> reread -> space_from_playerB -> identifying -> responding -> completion+answer_submitted -> grading -> resolved`
+5. Reconnect path
+   - `waiting -> preparing -> reading -> space_from_playerA -> buzz_pending -> identifying -> playerB_disconnect -> playerB_reconnect -> responding -> completion+answer_submitted -> grading -> resolved`
+
+### Open decisions
+
+- No unresolved product decisions remain in this contract. All open questions about audio UX quality, full human reviewer UI, and team-size expansion are out-of-scope and should be tracked in separate follow-up implementation issues.
+>>>>>>> Stashed changes

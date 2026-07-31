@@ -1,14 +1,44 @@
 const textEncoder = new TextEncoder();
 const ROOM_TTL_MS = 30 * 60 * 1000;
 const POLL_MS = 700;
-const questions = [
-  'According to John 11:25, who said, "I am the resurrection and the life"?',
-  'To whom did Jesus say, "I am the resurrection and the life"?',
-  'Who baptized Jesus?',
-  'What was the name of the man Jesus raised from the dead in John 11?',
+const IMPORT_MAX_BYTES = 200 * 1024;
+const MAX_FIELD_LENGTH = 600;
+const MAX_ARRAY_ITEM_LENGTH = 200;
+const MAX_ANSWERS_PER_QUESTION = 20;
+const DEFAULT_QUESTION_BANK = 'default';
+const SUPPORTED_QUESTION_TYPES = new Set(['regular', 'interrogative']);
+
+const SAMPLE_QUESTION_BANK = [
+  {
+    questionId: 'Q-100',
+    questionType: 'regular',
+    officialQuestion: 'What color is the sky on a clear day?',
+    spokenQuestion: 'What color is the sky on a clear day?',
+    expectedAnswer: 'blue',
+    acceptedAnswers: ['blue', 'azure', 'sky blue'],
+    reference: 'https://example.org/quiz-demo/sky-color',
+    explanation: 'The clear daytime sky is mostly blue because of Rayleigh scattering.',
+    introRemarks: 'Keep the delivery calm and loud enough for both players.',
+    interruptionRequirements: 'Do not interrupt while the question is speaking.',
+    pronunciationHints: 'Blue, as in blue.',
+  },
+  {
+    questionId: 'Q-101',
+    questionType: 'interrogative',
+    officialQuestion: 'Who is the first person on the moon in this game?',
+    spokenQuestion: 'Who was the first person on the moon in this game context?',
+    expectedAnswer: 'Neil Armstrong',
+    acceptedAnswers: ['Neil Armstrong', 'Armstrong', 'moonwalker'],
+    reference: 'https://example.org/quiz-demo/moon',
+    explanation: 'This game uses sample trivia for demonstration only.',
+    introRemarks: 'Read the question exactly as written.',
+    interruptionRequirements: 'Do not interrupt until the question is fully spoken.',
+    pronunciationHints: 'Neil like "Neal", Armstrong with emphasis on first syllable.',
+  },
 ];
 
 const rooms = new Map();
+const questionBanks = new Map();
 const assets = new Map([
   ['/', { body: __INDEX_HTML__, type: 'text/html; charset=utf-8' }],
   ['/index.html', { body: __INDEX_HTML__, type: 'text/html; charset=utf-8' }],
@@ -17,6 +47,7 @@ const assets = new Map([
 ]);
 
 let d1Initialized = false;
+let questionSchemaInitialized = false;
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -46,9 +77,333 @@ function safePlayerId(value) {
   return String(value || '').trim().slice(0, 80);
 }
 
-function questionText(room) {
-  if (room.questionIndex < 0) return null;
-  return questions[room.questionIndex % questions.length] || null;
+function safeQuestionBank(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 24) || DEFAULT_QUESTION_BANK;
+}
+
+function normalizeText(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function hasUnsafeMarkup(value) {
+  return /<[^>]*>/.test(String(value || ''));
+}
+
+function containsUnsupportedField(field) {
+  return hasUnsafeMarkup(field);
+}
+
+function isEmpty(value) {
+  return !String(value || '').trim();
+}
+
+function nowRowError(rowNumber, field, message) {
+  return { row: rowNumber, field, message };
+}
+
+function parseDelimitedRows(raw, delimiter) {
+  const text = String(raw ?? '');
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+  let unbalancedQuotes = false;
+
+  const flushField = () => {
+    row.push(cell);
+    cell = '';
+  };
+  const flushRow = () => {
+    if (row.length > 1 || row[0] !== '' || cell !== '') {
+      rows.push(row);
+      row = [];
+    } else {
+      row = [];
+    }
+  };
+
+  for (let i = 0; i <= normalized.length; i += 1) {
+    const char = i === normalized.length ? '\n' : normalized[i];
+    if (inQuotes) {
+      if (char === '"') {
+        if (normalized[i + 1] === '"') {
+          cell += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cell += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (char === delimiter) {
+      flushField();
+    } else if (char === '\n') {
+      flushField();
+      flushRow();
+    } else {
+      cell += char;
+    }
+  }
+
+  if (inQuotes) unbalancedQuotes = true;
+  return { rows, unbalancedQuotes };
+}
+
+const QUESTION_FIELD_ALIASES = new Map([
+  ['question_id', 'questionId'],
+  ['questionid', 'questionId'],
+  ['type', 'questionType'],
+  ['question_type', 'questionType'],
+  ['official_question', 'officialQuestion'],
+  ['officialquestion', 'officialQuestion'],
+  ['spoken_question', 'spokenQuestion'],
+  ['spokenquestion', 'spokenQuestion'],
+  ['expected_answer', 'expectedAnswer'],
+  ['expectedanswer', 'expectedAnswer'],
+  ['accepted_answers', 'acceptedAnswers'],
+  ['acceptedanswers', 'acceptedAnswers'],
+  ['reference', 'reference'],
+  ['explanation', 'explanation'],
+  ['intro_remarks', 'introRemarks'],
+  ['introremarks', 'introRemarks'],
+  ['interruption_requirements', 'interruptionRequirements'],
+  ['interruptionrequirements', 'interruptionRequirements'],
+  ['pronunciation_hints', 'pronunciationHints'],
+  ['pronunciationhints', 'pronunciationHints'],
+]);
+
+function normalizeFieldName(field) {
+  return String(field || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function parseAcceptedAnswers(raw, rowNumber, errors) {
+  const source = String(raw || '').trim();
+  const normalizeAnswer = (answer) => normalizeText(answer).replace(/^"|"$/g, '');
+  if (!source) {
+    errors.push(nowRowError(rowNumber, 'acceptedAnswers', 'accepted answers are required'));
+    return [];
+  }
+
+  let values = [];
+  if (source.startsWith('[') && source.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(source);
+      if (!Array.isArray(parsed) || !parsed.length) {
+        errors.push(nowRowError(rowNumber, 'acceptedAnswers', 'accepted answers must be a non-empty list'));
+      } else {
+        values = parsed.map((item) => String(item).trim());
+      }
+    } catch {
+      errors.push(nowRowError(rowNumber, 'acceptedAnswers', 'accepted answers JSON is invalid'));
+    }
+  } else {
+    const delimiter = source.includes('|') ? '|' : source.includes(';') ? ';' : ',';
+    values = source
+      .split(delimiter)
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+    if (!values.length) {
+      errors.push(nowRowError(rowNumber, 'acceptedAnswers', 'accepted answers are required'));
+    }
+  }
+
+  const normalized = values
+    .map((answer) => normalizeAnswer(answer))
+    .filter(Boolean);
+
+  if (normalized.length !== values.length) {
+    values = values.filter((answer) => String(answer).trim() !== '');
+  }
+
+  if (normalized.length > MAX_ANSWERS_PER_QUESTION) {
+    errors.push(nowRowError(rowNumber, 'acceptedAnswers', 'too many accepted answers'));
+  }
+
+  const outOfRange = values.some((answer) => String(answer).length > MAX_ARRAY_ITEM_LENGTH || hasUnsafeMarkup(answer));
+  if (outOfRange) {
+    errors.push(nowRowError(rowNumber, 'acceptedAnswers', 'accepted answers are malformed'));
+  }
+
+  const deduped = [];
+  const seen = new Set();
+  for (const answer of normalized) {
+    if (!seen.has(answer)) {
+      seen.add(answer);
+      deduped.push(answer);
+    }
+  }
+  return deduped;
+}
+
+function validateQuestionRecord(row, rowNumber, seenIds, errors, fieldIndex) {
+  const id = String(row[fieldIndex.questionId] || '').trim();
+  const type = String(row[fieldIndex.questionType] || '').trim().toLowerCase();
+  const officialQuestion = String(row[fieldIndex.officialQuestion] || '').trim();
+  const spokenQuestion = String(row[fieldIndex.spokenQuestion] || '').trim();
+  const expectedAnswer = String(row[fieldIndex.expectedAnswer] || '').trim();
+  const acceptedAnswers = parseAcceptedAnswers(row[fieldIndex.acceptedAnswers], rowNumber, errors);
+  const reference = String(row[fieldIndex.reference] || '').trim();
+  const explanation = String(row[fieldIndex.explanation] || '').trim();
+  const introRemarks = String(row[fieldIndex.introRemarks] || '').trim();
+  const interruptionRequirements = String(row[fieldIndex.interruptionRequirements] || '').trim();
+  const pronunciationHints = String(row[fieldIndex.pronunciationHints] || '').trim();
+
+  if (!id) errors.push(nowRowError(rowNumber, 'questionId', 'question id is required'));
+  if (!type) errors.push(nowRowError(rowNumber, 'questionType', 'question type is required'));
+  if (type && !SUPPORTED_QUESTION_TYPES.has(type)) {
+    errors.push(nowRowError(rowNumber, 'questionType', 'unsupported question type'));
+  }
+  if (isEmpty(officialQuestion)) errors.push(nowRowError(rowNumber, 'officialQuestion', 'official question is required'));
+  if (isEmpty(spokenQuestion)) errors.push(nowRowError(rowNumber, 'spokenQuestion', 'spoken question is required'));
+  if (isEmpty(expectedAnswer)) errors.push(nowRowError(rowNumber, 'expectedAnswer', 'expected answer is required'));
+  if (isEmpty(reference)) errors.push(nowRowError(rowNumber, 'reference', 'reference is required'));
+  if (isEmpty(explanation)) errors.push(nowRowError(rowNumber, 'explanation', 'explanation is required'));
+  if (isEmpty(introRemarks)) errors.push(nowRowError(rowNumber, 'introRemarks', 'intro remarks are required'));
+  if (isEmpty(interruptionRequirements)) {
+    errors.push(nowRowError(rowNumber, 'interruptionRequirements', 'interruption requirements are required'));
+  }
+  if (isEmpty(pronunciationHints)) errors.push(nowRowError(rowNumber, 'pronunciationHints', 'pronunciation hints are required'));
+
+  if (containsUnsupportedField(id)) errors.push(nowRowError(rowNumber, 'questionId', 'question id contains unsupported markup'));
+  if (containsUnsupportedField(type)) errors.push(nowRowError(rowNumber, 'questionType', 'question type contains unsupported markup'));
+  if (containsUnsafeMarkup(officialQuestion)) {
+    errors.push(nowRowError(rowNumber, 'officialQuestion', 'official question contains unsupported markup'));
+  }
+  if (containsUnsafeMarkup(spokenQuestion)) errors.push(nowRowError(rowNumber, 'spokenQuestion', 'spoken question contains unsupported markup'));
+  if (containsUnsafeMarkup(expectedAnswer)) errors.push(nowRowError(rowNumber, 'expectedAnswer', 'expected answer contains unsupported markup'));
+  if (containsUnsafeMarkup(reference)) errors.push(nowRowError(rowNumber, 'reference', 'reference contains unsupported markup'));
+  if (containsUnsafeMarkup(explanation)) errors.push(nowRowError(rowNumber, 'explanation', 'explanation contains unsupported markup'));
+  if (containsUnsafeMarkup(introRemarks)) errors.push(nowRowError(rowNumber, 'introRemarks', 'intro remarks contain unsupported markup'));
+  if (containsUnsafeMarkup(interruptionRequirements)) {
+    errors.push(nowRowError(rowNumber, 'interruptionRequirements', 'interruption requirements contain unsupported markup'));
+  }
+  if (containsUnsafeMarkup(pronunciationHints)) errors.push(nowRowError(rowNumber, 'pronunciationHints', 'pronunciation hints contain unsupported markup'));
+
+  if (officialQuestion.length > MAX_FIELD_LENGTH) {
+    errors.push(nowRowError(rowNumber, 'officialQuestion', 'official question is too long'));
+  }
+  if (spokenQuestion.length > MAX_FIELD_LENGTH) {
+    errors.push(nowRowError(rowNumber, 'spokenQuestion', 'spoken question is too long'));
+  }
+  if (expectedAnswer.length > MAX_FIELD_LENGTH) {
+    errors.push(nowRowError(rowNumber, 'expectedAnswer', 'expected answer is too long'));
+  }
+  if (reference.length > MAX_FIELD_LENGTH) {
+    errors.push(nowRowError(rowNumber, 'reference', 'reference is too long'));
+  }
+  if (explanation.length > MAX_FIELD_LENGTH) {
+    errors.push(nowRowError(rowNumber, 'explanation', 'explanation is too long'));
+  }
+  if (introRemarks.length > MAX_FIELD_LENGTH) {
+    errors.push(nowRowError(rowNumber, 'introRemarks', 'intro remarks are too long'));
+  }
+  if (interruptionRequirements.length > MAX_FIELD_LENGTH) {
+    errors.push(nowRowError(rowNumber, 'interruptionRequirements', 'interruption requirements are too long'));
+  }
+  if (pronunciationHints.length > MAX_FIELD_LENGTH) {
+    errors.push(nowRowError(rowNumber, 'pronunciationHints', 'pronunciation hints are too long'));
+  }
+
+  if (!isEmpty(expectedAnswer) && acceptedAnswers.length) {
+    const normalizedExpected = normalizeText(expectedAnswer);
+    if (!acceptedAnswers.includes(normalizedExpected)) {
+      errors.push(nowRowError(
+        rowNumber,
+        'acceptedAnswers',
+        'expected answer must match at least one accepted answer',
+      ));
+    }
+  }
+
+  if (id && seenIds.has(id)) {
+    errors.push(nowRowError(rowNumber, 'questionId', 'duplicate question id'));
+  } else if (id) {
+    seenIds.add(id);
+  }
+
+  return {
+    questionId: id,
+    questionType: type,
+    officialQuestion,
+    spokenQuestion,
+    expectedAnswer,
+    acceptedAnswers,
+    reference,
+    explanation,
+    introRemarks,
+    interruptionRequirements,
+    pronunciationHints,
+  };
+}
+
+function parseQuestionBankInput(raw) {
+  const content = String(raw.content || '');
+  const format = String(raw.format || 'csv').toLowerCase();
+  const delimiter = format === 'tsv' ? '\t' : ',';
+  const errors = [];
+  const parsed = [];
+
+  if (!content.trim()) errors.push({ row: 1, field: 'content', message: 'content is required' });
+  if (!Number.isFinite(content.length) || content.length > IMPORT_MAX_BYTES) {
+    errors.push({ row: 1, field: 'content', message: 'file is too large' });
+  }
+  if (!['csv', 'tsv'].includes(format)) {
+    errors.push({ row: 1, field: 'format', message: 'format must be csv or tsv' });
+  }
+
+  if (errors.length) {
+    return { format, errors, records: [] };
+  }
+
+  const parsedResult = parseDelimitedRows(content, delimiter);
+  if (parsedResult.unbalancedQuotes) {
+    errors.push({ row: 1, field: 'content', message: 'malformed quoted text' });
+  }
+
+  const lines = parsedResult.rows;
+  if (lines.length < 2) {
+    errors.push({ row: 1, field: 'content', message: 'header row and at least one data row are required' });
+    return { format, errors, records: [] };
+  }
+
+  const header = lines[0].map(normalizeFieldName).map((name) => QUESTION_FIELD_ALIASES.get(name) || name);
+  const fieldIndex = {};
+  for (const canonical of [
+    'questionId', 'questionType', 'officialQuestion', 'spokenQuestion', 'expectedAnswer', 'acceptedAnswers', 'reference', 'explanation', 'introRemarks', 'interruptionRequirements', 'pronunciationHints',
+  ]) {
+    const index = header.findIndex((value) => value === canonical);
+    if (index >= 0) fieldIndex[canonical] = index;
+  }
+
+  for (const required of ['questionId', 'questionType', 'officialQuestion', 'spokenQuestion', 'expectedAnswer', 'acceptedAnswers', 'reference', 'explanation', 'introRemarks', 'interruptionRequirements', 'pronunciationHints']) {
+    if (typeof fieldIndex[required] !== 'number') {
+      errors.push({ row: 1, field: required, message: `missing required field: ${required}` });
+    }
+  }
+  if (errors.length) return { format, errors, records: [] };
+
+  const seenIds = new Set();
+  for (let rowIndex = 1; rowIndex < lines.length; rowIndex += 1) {
+    const row = lines[rowIndex];
+    const isEmptyLine = row.every((value) => String(value || '').trim() === '');
+    if (isEmptyLine) continue;
+    const rowNumber = rowIndex + 1;
+    parsed.push(validateQuestionRecord(row, rowNumber, seenIds, errors, fieldIndex));
+  }
+
+  return { format, errors, records: parsed };
 }
 
 function snapshot(room) {
@@ -58,7 +413,10 @@ function snapshot(room) {
     players: room.players.map(({ id, name }) => ({ id, name })),
     state: room.state,
     questionNumber: room.questionIndex < 0 ? 0 : room.questionIndex + 1,
-    question: questionText(room),
+    questionBank: room.questionBank || DEFAULT_QUESTION_BANK,
+    questionRevision: room.questionRevision || 0,
+    question: room.question || null,
+    questionId: room.questionId || null,
     questionStartedAt: room.questionStartedAt || null,
     attemptId: room.attemptId,
     winnerId: room.winnerId,
@@ -92,40 +450,40 @@ function parsePlayers(value) {
   }
 }
 
+function toQuestionItem(record) {
+  return {
+    question_id: record.questionId,
+    question_type: record.questionType,
+    official_question: record.officialQuestion,
+    spoken_question: record.spokenQuestion,
+    expected_answer: record.expectedAnswer,
+    accepted_answers_json: JSON.stringify(record.acceptedAnswers),
+    reference: record.reference,
+    explanation: record.explanation,
+    intro_remarks: record.introRemarks,
+    interruption_requirements: record.interruptionRequirements,
+    pronunciation_hints: record.pronunciationHints,
+  };
+}
+
 function normalizeRoom(rawRoom) {
   if (!rawRoom) return null;
   return {
     code: rawRoom.room_code,
     hostId: rawRoom.host_id,
     state: rawRoom.state,
+    players: parsePlayers(rawRoom.players_json),
     questionIndex: toSafeInt(rawRoom.question_index, -1),
     attemptId: toSafeInt(rawRoom.attempt_id, 0),
     sequence: toSafeInt(rawRoom.sequence, 0),
     winnerId: rawRoom.winner_id || null,
     questionStartedAt: rawRoom.question_started_at ? Number(rawRoom.question_started_at) : null,
+    questionBank: rawRoom.question_bank || DEFAULT_QUESTION_BANK,
+    questionRevision: toSafeInt(rawRoom.question_revision, 0),
+    question: rawRoom.question || null,
+    questionId: rawRoom.question_id || null,
     expiresAt: toSafeInt(rawRoom.expires_at, now()),
-    players: parsePlayers(rawRoom.players_json),
   };
-}
-
-function createRoomSnapshot(code, hostId, name) {
-  return {
-    code,
-    hostId,
-    players: [{ id: hostId, name }],
-    state: 'waiting',
-    questionIndex: -1,
-    attemptId: 0,
-    sequence: 0,
-    winnerId: null,
-    questionStartedAt: null,
-    expiresAt: now() + ROOM_TTL_MS,
-  };
-}
-
-function roomFromPath(pathname) {
-  const match = pathname.match(/^\/api\/rooms\/([A-Z0-9]+)(?:\/|$)/);
-  return match ? match[1] : null;
 }
 
 function buildRoomStateResponse(room) {
@@ -137,23 +495,170 @@ function buildRoomStateResponse(room) {
     questionStartedAt: roomSnapshot.questionStartedAt,
     attemptId: roomSnapshot.attemptId,
     sequence: roomSnapshot.sequence,
+    questionId: roomSnapshot.questionId,
+    questionBank: roomSnapshot.questionBank,
+    questionRevision: roomSnapshot.questionRevision,
   };
 }
 
-function ensureMemoryRoomDefaults(code, hostId, name) {
+function ensureMemoryQuestionBank(bankCode) {
+  const bank = safeQuestionBank(bankCode);
+  if (!questionBanks.has(bank)) {
+    const bankState = {
+      bankCode: bank,
+      activeRevision: 0,
+      nextRevision: 1,
+      revisions: new Map(),
+    };
+    if (bank === DEFAULT_QUESTION_BANK) {
+      bankState.revisions.set(1, {
+        revision: 1,
+        status: 'active',
+        createdAt: now(),
+        questions: SAMPLE_QUESTION_BANK.map((question) => ({ ...question })),
+      });
+      bankState.activeRevision = 1;
+      bankState.nextRevision = 2;
+    }
+    questionBanks.set(bank, bankState);
+  }
+  return questionBanks.get(bank);
+}
+
+function questionsForMemoryRevision(bankCode, revision) {
+  const bank = ensureMemoryQuestionBank(bankCode);
+  return bank.revisions.get(revision)?.questions || [];
+}
+
+function questionRevisionForNewMemory(bankCode) {
+  const bank = ensureMemoryQuestionBank(bankCode);
+  const revision = bank.nextRevision;
+  bank.nextRevision += 1;
+  return revision;
+}
+
+function importQuestionRevisionMemory(bankCode, parsed, publish) {
+  const bank = ensureMemoryQuestionBank(bankCode);
+  const revision = questionRevisionForNewMemory(bankCode);
+  bank.revisions.set(revision, {
+    revision,
+    status: publish ? 'active' : 'pending',
+    createdAt: now(),
+    questions: parsed.map((record) => ({ ...record })),
+  });
+  if (publish) bank.activeRevision = revision;
+  return {
+    bankCode,
+    revision,
+    status: publish ? 'active' : 'pending',
+    questionCount: parsed.length,
+    activeRevision: publish ? revision : bank.activeRevision,
+  };
+}
+
+function activateQuestionRevisionMemory(bankCode, revision) {
+  const bank = ensureMemoryQuestionBank(bankCode);
+  if (!bank.revisions.has(revision)) {
+    const error = new Error('Revision not found.');
+    error.code = 404;
+    throw error;
+  }
+  bank.activeRevision = revision;
+  for (const entry of bank.revisions.values()) {
+    entry.status = entry.revision === revision ? 'active' : 'pending';
+  }
+  return {
+    bankCode,
+    revision,
+    status: 'active',
+  };
+}
+
+function normalizeQuestionRevision(rawRevision) {
+  if (!rawRevision) return null;
+  return {
+    bankCode: rawRevision.bank_code,
+    revision: toSafeInt(rawRevision.revision, 0),
+    status: rawRevision.status,
+    createdAt: toSafeInt(rawRevision.created_at, now()),
+  };
+}
+
+function normalizeQuestionItem(rawQuestion) {
+  if (!rawQuestion) return null;
+  let acceptedAnswers = [];
+  try {
+    const parsed = JSON.parse(rawQuestion.accepted_answers_json || '[]');
+    acceptedAnswers = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    acceptedAnswers = [];
+  }
+  return {
+    questionId: rawQuestion.question_id,
+    questionType: rawQuestion.question_type,
+    officialQuestion: rawQuestion.official_question,
+    spokenQuestion: rawQuestion.spoken_question,
+    expectedAnswer: rawQuestion.expected_answer,
+    acceptedAnswers,
+    reference: rawQuestion.reference,
+    explanation: rawQuestion.explanation,
+    introRemarks: rawQuestion.intro_remarks,
+    interruptionRequirements: rawQuestion.interruption_requirements,
+    pronunciationHints: rawQuestion.pronunciation_hints,
+  };
+}
+
+function createRoomSnapshot(code, hostId, name, questionBank = DEFAULT_QUESTION_BANK, questionRevision = 0) {
+  return {
+    code,
+    hostId,
+    players: [{ id: hostId, name }],
+    state: 'waiting',
+    questionIndex: -1,
+    attemptId: 0,
+    sequence: 0,
+    winnerId: null,
+    questionStartedAt: null,
+    questionBank,
+    questionRevision,
+    question: null,
+    questionId: null,
+    expiresAt: now() + ROOM_TTL_MS,
+  };
+}
+
+function roomFromPath(pathname) {
+  const match = pathname.match(/^\/api\/rooms\/([A-Z0-9]+)(?:\/|$)/);
+  return match ? match[1] : null;
+}
+
+function emitSnapshot(controller, room) {
+  return emit(controller, 'snapshot', snapshot(room));
+}
+
+function ensureMemoryRoomDefaults(code, hostId, name, questionBank = DEFAULT_QUESTION_BANK, questionRevision = 0) {
   if (!rooms.has(code)) {
-    rooms.set(code, createRoomSnapshot(code, hostId, name));
+    const resolvedBank = safeQuestionBank(questionBank);
+    const resolvedRevision = questionRevision || getActiveMemoryRevision(resolvedBank);
+    rooms.set(code, createRoomSnapshot(code, hostId, name, resolvedBank, resolvedRevision));
   }
   const room = rooms.get(code);
+  if (room.questionBank && room.questionBank !== safeQuestionBank(questionBank)) {
+    const error = new Error('Room bank mismatch.');
+    error.code = 409;
+    throw error;
+  }
   room.expiresAt = now() + ROOM_TTL_MS;
   return room;
 }
 
-function cleanExpiredMemory() {
-  const cutoff = now();
-  for (const [code, room] of rooms.entries()) {
-    if (room.expiresAt < cutoff) rooms.delete(code);
-  }
+function getActiveMemoryRevision(bankCode) {
+  const bank = ensureMemoryQuestionBank(bankCode);
+  return bank.activeRevision || 0;
+}
+
+function getAttemptableQuestionsFromMemory(room) {
+  return questionsForMemoryRevision(room.questionBank || DEFAULT_QUESTION_BANK, room.questionRevision || getActiveMemoryRevision(room.questionBank || DEFAULT_QUESTION_BANK));
 }
 
 async function initD1(env) {
@@ -168,21 +673,251 @@ async function initD1(env) {
       sequence INTEGER NOT NULL,
       winner_id TEXT,
       question_started_at INTEGER,
+      question_bank TEXT NOT NULL,
+      question_revision INTEGER NOT NULL,
+      question TEXT,
+      question_id TEXT,
       expires_at INTEGER NOT NULL,
       players_json TEXT NOT NULL
     )`,
   ).run();
+
+  const roomColumns = await env.DB.prepare('PRAGMA table_info(rooms)').all();
+  const existingColumns = new Set((roomColumns.results || []).map((row) => String(row.name)));
+  if (!existingColumns.has('question_bank')) {
+    await env.DB.prepare('ALTER TABLE rooms ADD COLUMN question_bank TEXT NOT NULL DEFAULT "' + DEFAULT_QUESTION_BANK + '"').run();
+  }
+  if (!existingColumns.has('question_revision')) {
+    await env.DB.prepare('ALTER TABLE rooms ADD COLUMN question_revision INTEGER NOT NULL DEFAULT 0').run();
+  }
+  if (!existingColumns.has('question')) {
+    await env.DB.prepare('ALTER TABLE rooms ADD COLUMN question TEXT').run();
+  }
+  if (!existingColumns.has('question_id')) {
+    await env.DB.prepare('ALTER TABLE rooms ADD COLUMN question_id TEXT').run();
+  }
+
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS question_banks (
+      bank_code TEXT PRIMARY KEY,
+      active_revision INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    )`,
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS question_revisions (
+      bank_code TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      question_count INTEGER NOT NULL,
+      row_count INTEGER NOT NULL,
+      created_by TEXT DEFAULT 'system',
+      PRIMARY KEY (bank_code, revision)
+    )`,
+  ).run();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS question_items (
+      bank_code TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      question_id TEXT NOT NULL,
+      question_type TEXT NOT NULL,
+      official_question TEXT NOT NULL,
+      spoken_question TEXT NOT NULL,
+      expected_answer TEXT NOT NULL,
+      accepted_answers_json TEXT NOT NULL,
+      reference TEXT NOT NULL,
+      explanation TEXT NOT NULL,
+      intro_remarks TEXT NOT NULL,
+      interruption_requirements TEXT NOT NULL,
+      pronunciation_hints TEXT NOT NULL,
+      PRIMARY KEY (bank_code, revision, question_id)
+    )`,
+  ).run();
+
   d1Initialized = true;
+  questionSchemaInitialized = true;
+  await seedDefaultQuestionBankD1(env);
 }
 
-async function cleanupD1(env) {
-  await env.DB.prepare('DELETE FROM rooms WHERE expires_at < ?').bind(now()).run();
+async function ensureQuestionBank(env, bankCode) {
+  await env.DB.prepare(
+    `INSERT INTO question_banks (bank_code, active_revision, updated_at)
+       VALUES (?, 0, ?)
+       ON CONFLICT(bank_code) DO UPDATE SET updated_at = excluded.updated_at`,
+  ).bind(bankCode, now()).run();
+  const { results } = await env.DB.prepare('SELECT active_revision FROM question_banks WHERE bank_code = ?').bind(bankCode).all();
+  return { bankCode, activeRevision: toSafeInt(results?.[0]?.active_revision, 0) };
+}
+
+async function seedDefaultQuestionBankD1(env) {
+  const bankCode = DEFAULT_QUESTION_BANK;
+  await ensureQuestionBank(env, bankCode);
+  const { results } = await env.DB.prepare('SELECT revision FROM question_revisions WHERE bank_code = ?').bind(bankCode).all();
+  if (results && results.length > 0) return;
+
+  const insertedRevision = 1;
+  await env.DB.prepare(
+    `INSERT INTO question_revisions (
+      bank_code, revision, status, created_at, question_count, row_count
+    ) VALUES (?, ?, 'active', ?, ?, ?)`,
+  ).bind(
+    bankCode,
+    insertedRevision,
+    now(),
+    SAMPLE_QUESTION_BANK.length,
+    SAMPLE_QUESTION_BANK.length,
+  ).run();
+
+  for (const record of SAMPLE_QUESTION_BANK) {
+    const normalized = toQuestionItem(record);
+    await env.DB.prepare(
+      `INSERT INTO question_items (
+        bank_code, revision, question_id, question_type, official_question, spoken_question,
+        expected_answer, accepted_answers_json, reference, explanation, intro_remarks,
+        interruption_requirements, pronunciation_hints
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      bankCode,
+      insertedRevision,
+      normalized.question_id,
+      normalized.question_type,
+      normalized.official_question,
+      normalized.spoken_question,
+      normalized.expected_answer,
+      normalized.accepted_answers_json,
+      normalized.reference,
+      normalized.explanation,
+      normalized.intro_remarks,
+      normalized.interruption_requirements,
+      normalized.pronunciation_hints,
+    ).run();
+  }
+  await env.DB.prepare('UPDATE question_banks SET active_revision = ?, updated_at = ? WHERE bank_code = ?').bind(insertedRevision, now(), bankCode).run();
+}
+
+async function getQuestionRevisionRows(env, bankCode) {
+  const rows = await env.DB.prepare('SELECT revision FROM question_revisions WHERE bank_code = ? ORDER BY revision DESC').bind(bankCode).all();
+  return rows.results || [];
+}
+
+async function getActiveQuestionRevisionD1(env, bankCode) {
+  const normalizedBank = safeQuestionBank(bankCode);
+  const bank = await getQuestionBankD1(env, normalizedBank);
+  if (bank && bank.activeRevision > 0) return bank.activeRevision;
+  const revisions = await getQuestionRevisionRows(env, normalizedBank);
+  if (revisions.length === 0) return 0;
+  return toSafeInt(revisions[0].revision, 0);
+}
+
+async function getQuestionBankD1(env, bankCode) {
+  const normalizedBank = safeQuestionBank(bankCode);
+  const { results } = await env.DB.prepare('SELECT bank_code, active_revision, updated_at FROM question_banks WHERE bank_code = ?').bind(normalizedBank).all();
+  const raw = results?.[0];
+  if (!raw) return null;
+  return { bankCode: raw.bank_code, activeRevision: toSafeInt(raw.active_revision, 0), updatedAt: raw.updated_at };
+}
+
+async function loadQuestionItemsD1(env, bankCode, revision) {
+  const { results } = await env.DB.prepare(
+    `SELECT question_id, question_type, official_question, spoken_question, expected_answer,
+            accepted_answers_json, reference, explanation, intro_remarks, interruption_requirements, pronunciation_hints
+       FROM question_items
+      WHERE bank_code = ? AND revision = ?
+   ORDER BY question_id`,
+  ).bind(bankCode, revision).all();
+
+  return (results || []).map(normalizeQuestionItem);
+}
+
+async function importQuestionRevisionD1(env, bankCode, records, publish = false) {
+  const normalizedBank = safeQuestionBank(bankCode);
+  await initD1(env);
+  await ensureQuestionBank(env, normalizedBank);
+  const revisionRows = await getQuestionRevisionRows(env, normalizedBank);
+  const revision = revisionRows.length ? toSafeInt(revisionRows[0].revision, 0) + 1 : 1;
+
+  await env.DB.prepare(
+    `INSERT INTO question_revisions (bank_code, revision, status, created_at, question_count, row_count)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).bind(normalizedBank, revision, publish ? 'active' : 'pending', now(), records.length, records.length).run();
+
+  for (const record of records) {
+    const normalized = toQuestionItem(record);
+    await env.DB.prepare(
+      `INSERT INTO question_items (
+        bank_code, revision, question_id, question_type, official_question, spoken_question,
+        expected_answer, accepted_answers_json, reference, explanation, intro_remarks,
+        interruption_requirements, pronunciation_hints
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      normalizedBank,
+      revision,
+      normalized.question_id,
+      normalized.question_type,
+      normalized.official_question,
+      normalized.spoken_question,
+      normalized.expected_answer,
+      normalized.accepted_answers_json,
+      normalized.reference,
+      normalized.explanation,
+      normalized.intro_remarks,
+      normalized.interruption_requirements,
+      normalized.pronunciation_hints,
+    ).run();
+  }
+
+  if (publish) {
+    await env.DB.prepare('UPDATE question_revisions SET status = CASE WHEN revision = ? THEN "active" ELSE "pending" END WHERE bank_code = ?')
+      .bind(revision, normalizedBank).run();
+    await env.DB.prepare('UPDATE question_banks SET active_revision = ?, updated_at = ? WHERE bank_code = ?')
+      .bind(revision, now(), normalizedBank).run();
+  }
+
+  return {
+    bankCode: normalizedBank,
+    revision,
+    status: publish ? 'active' : 'pending',
+    questionCount: records.length,
+    activeRevision: publish ? revision : await getActiveQuestionRevisionD1(env, normalizedBank),
+  };
+}
+
+async function activateQuestionRevisionD1(env, bankCode, revision) {
+  const normalizedBank = safeQuestionBank(bankCode);
+  const { results } = await env.DB.prepare('SELECT revision, status FROM question_revisions WHERE bank_code = ? AND revision = ?').bind(normalizedBank, revision).all();
+  if (!results || results.length === 0) {
+    const error = new Error('Revision not found.');
+    error.code = 404;
+    throw error;
+  }
+  await env.DB.prepare('UPDATE question_revisions SET status = CASE WHEN revision = ? THEN "active" ELSE "pending" END WHERE bank_code = ?').bind(revision, normalizedBank).run();
+  await env.DB.prepare('UPDATE question_banks SET active_revision = ?, updated_at = ? WHERE bank_code = ?').bind(revision, now(), normalizedBank).run();
+  return { bankCode: normalizedBank, revision, status: 'active' };
+}
+
+async function getActiveQuestionCatalogD1(env, bankCode, revision) {
+  const normalizedBank = safeQuestionBank(bankCode);
+  const resolvedRevision = revision || (await getActiveQuestionRevisionD1(env, normalizedBank));
+  if (!resolvedRevision) return [];
+  return loadQuestionItemsD1(env, normalizedBank, resolvedRevision);
+}
+
+function cleanExpiredMemory() {
+  const cutoff = now();
+  for (const [code, room] of rooms.entries()) {
+    if (room.expiresAt < cutoff) rooms.delete(code);
+  }
+}
+
+function cleanupD1(env) {
+  return env.DB.prepare('DELETE FROM rooms WHERE expires_at < ?').bind(now()).run();
 }
 
 async function findRoomD1(env, code) {
   const { results } = await env.DB.prepare(
     `SELECT room_code, host_id, state, question_index, attempt_id, sequence,
-            winner_id, question_started_at, expires_at, players_json
+            winner_id, question_started_at, question_bank, question_revision, question, question_id, expires_at, players_json
        FROM rooms
       WHERE room_code = ?`,
   ).bind(code).all();
@@ -197,9 +932,9 @@ async function countD1(env) {
 async function upsertRoomD1(env, room) {
   await env.DB.prepare(
     `INSERT INTO rooms (
-        room_code, host_id, state, question_index, attempt_id, sequence,
-        winner_id, question_started_at, expires_at, players_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      room_code, host_id, state, question_index, attempt_id, sequence,
+      winner_id, question_started_at, question_bank, question_revision, question, question_id, expires_at, players_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(room_code) DO UPDATE SET
        host_id = COALESCE(rooms.host_id, excluded.host_id),
        state = excluded.state,
@@ -208,6 +943,10 @@ async function upsertRoomD1(env, room) {
        sequence = excluded.sequence,
        winner_id = excluded.winner_id,
        question_started_at = excluded.question_started_at,
+       question_bank = excluded.question_bank,
+       question_revision = excluded.question_revision,
+       question = excluded.question,
+       question_id = excluded.question_id,
        expires_at = excluded.expires_at,
        players_json = excluded.players_json`,
   ).bind(
@@ -219,6 +958,10 @@ async function upsertRoomD1(env, room) {
     room.sequence,
     room.winnerId,
     room.questionStartedAt,
+    room.questionBank || DEFAULT_QUESTION_BANK,
+    room.questionRevision || 0,
+    room.question,
+    room.questionId,
     room.expiresAt,
     JSON.stringify(room.players),
   ).run();
@@ -229,17 +972,19 @@ function bumpSequence(room) {
   room.expiresAt = now() + ROOM_TTL_MS;
 }
 
-async function ensureRoomD1(env, code, playerId, name) {
+async function ensureRoomD1(env, code, playerId, name, requestedBank) {
   await initD1(env);
   await cleanupD1(env);
+  const resolvedBank = safeQuestionBank(requestedBank || DEFAULT_QUESTION_BANK);
+  const activeRevision = await getActiveQuestionRevisionD1(env, resolvedBank);
 
   const placeholderPlayers = JSON.stringify([{ id: playerId, name }]);
   await env.DB.prepare(
     `INSERT INTO rooms (
       room_code, host_id, state, question_index, attempt_id, sequence,
-      winner_id, question_started_at, expires_at, players_json
-    ) VALUES (?, ?, 'waiting', -1, 0, 0, NULL, NULL, ?, ?)`,
-  ).bind(code, playerId, now() + ROOM_TTL_MS, placeholderPlayers).run().catch((error) => {
+      winner_id, question_started_at, question_bank, question_revision, question, question_id, expires_at, players_json
+    ) VALUES (?, ?, 'waiting', -1, 0, 0, NULL, NULL, ?, ?, NULL, NULL, ?, ?)`,
+  ).bind(code, playerId, resolvedBank, activeRevision, now() + ROOM_TTL_MS, placeholderPlayers).run().catch((error) => {
     if (!error || !String(error.message).includes('UNIQUE')) {
       throw error;
     }
@@ -247,11 +992,16 @@ async function ensureRoomD1(env, code, playerId, name) {
 
   const room = await findRoomD1(env, code);
   if (!room) return null;
+  if (room.questionBank && room.questionBank !== resolvedBank) {
+    const mismatch = new Error('This room is already using another question bank.');
+    mismatch.code = 409;
+    throw mismatch;
+  }
 
-  const existingIndex = room.players.findIndex((entry) => entry.id === playerId);
-  if (existingIndex >= 0) {
-    if (room.players[existingIndex].name !== name) {
-      room.players[existingIndex].name = name;
+  const currentIndex = room.players.findIndex((entry) => entry.id === playerId);
+  if (currentIndex >= 0) {
+    if (room.players[currentIndex].name !== name) {
+      room.players[currentIndex].name = name;
       bumpSequence(room);
     }
   } else if (room.players.length < 2) {
@@ -262,24 +1012,26 @@ async function ensureRoomD1(env, code, playerId, name) {
     err.code = 409;
     throw err;
   }
-
+  room.questionBank = resolvedBank;
+  room.questionRevision = room.questionRevision || activeRevision;
   await upsertRoomD1(env, room);
   return room;
 }
 
-async function ensureRoomMemory(code, playerId, name) {
+async function ensureRoomMemory(code, playerId, name, requestedBank) {
   cleanExpiredMemory();
-  const room = ensureMemoryRoomDefaults(code, playerId, name);
-  const known = room.players.find((entry) => entry.id === playerId);
-  if (known) {
-    if (known.name !== name) {
-      known.name = name;
+  const resolvedBank = safeQuestionBank(requestedBank || DEFAULT_QUESTION_BANK);
+  const room = ensureMemoryRoomDefaults(code, playerId, name, resolvedBank, getActiveMemoryRevision(resolvedBank));
+
+  const existing = room.players.find((entry) => entry.id === playerId);
+  if (existing) {
+    if (existing.name !== name) {
+      existing.name = name;
       room.sequence += 1;
       room.expiresAt = now() + ROOM_TTL_MS;
     }
     return room;
   }
-
   if (room.players.length >= 2) {
     const err = new Error('This demo room already has two players.');
     err.code = 409;
@@ -317,6 +1069,12 @@ async function loadRoomState(env, code) {
   return findRoomD1(env, code);
 }
 
+function pickQuestionForAttempt(questionSet, questionIndex) {
+  const nextQuestionIndex = (questionIndex + 1) % questionSet.length;
+  const candidate = questionSet[nextQuestionIndex];
+  return { candidate, nextQuestionIndex };
+}
+
 async function startAttemptD1(env, room, playerId) {
   requireHost(room, playerId);
   if (room.players.length < 2) {
@@ -326,9 +1084,18 @@ async function startAttemptD1(env, room, playerId) {
   }
   if (room.state === 'reading' || room.state === 'locked') return room;
 
-  const nextQuestionIndex = (room.questionIndex + 1) % questions.length;
+  const selectedBank = room.questionBank || DEFAULT_QUESTION_BANK;
+  const activeRevision = room.questionRevision || await getActiveQuestionRevisionD1(env, selectedBank);
+  const questionSet = await getActiveQuestionCatalogD1(env, selectedBank, activeRevision);
+  if (!questionSet.length) {
+    const err = new Error('No active approved questions are available for this bank.');
+    err.code = 409;
+    throw err;
+  }
+
   const startAt = now();
-  const updateResult = await env.DB.prepare(
+  const { candidate, nextQuestionIndex } = pickQuestionForAttempt(questionSet, room.questionIndex);
+  const updated = await env.DB.prepare(
     `UPDATE rooms
         SET state = 'reading',
             question_index = ?,
@@ -336,14 +1103,18 @@ async function startAttemptD1(env, room, playerId) {
             sequence = sequence + 1,
             winner_id = NULL,
             question_started_at = ?,
+            question_bank = ?,
+            question_revision = ?,
+            question = ?,
+            question_id = ?,
             expires_at = ?
       WHERE room_code = ?
-        AND state IN ('waiting', 'resolved')`,
-  ).bind(nextQuestionIndex, startAt, startAt + ROOM_TTL_MS, room.code).run();
-  if (updateResult.meta?.changes !== 1) {
-    return (await loadRoomState(env, room.code)) || room;
-  }
-  return findRoomD1(env, room.code);
+        AND state IN ('waiting', 'locked')`,
+  ).bind(nextQuestionIndex, startAt, selectedBank, activeRevision, candidate.officialQuestion, candidate.questionId, startAt + ROOM_TTL_MS, room.code).run();
+  if (updated.meta?.changes !== 1) return (await loadRoomState(env, room.code)) || room;
+  const latest = await findRoomD1(env, room.code);
+  if (latest) return latest;
+  return room;
 }
 
 function startAttemptMemory(room, playerId) {
@@ -354,11 +1125,21 @@ function startAttemptMemory(room, playerId) {
     throw err;
   }
   if (room.state === 'reading' || room.state === 'locked') return room;
-  room.questionIndex = (room.questionIndex + 1) % questions.length;
-  room.questionStartedAt = now();
+
+  const questionSet = getAttemptableQuestionsFromMemory(room);
+  if (!questionSet.length) {
+    const err = new Error('No active approved questions are available for this bank.');
+    err.code = 409;
+    throw err;
+  }
+  const { candidate, nextQuestionIndex } = pickQuestionForAttempt(questionSet, room.questionIndex);
+  room.questionIndex = nextQuestionIndex;
   room.state = 'reading';
   room.winnerId = null;
   room.attemptId += 1;
+  room.questionStartedAt = now();
+  room.question = candidate.officialQuestion;
+  room.questionId = candidate.questionId;
   room.sequence += 1;
   room.expiresAt = now() + ROOM_TTL_MS;
   return room;
@@ -384,7 +1165,6 @@ async function buzzAttemptD1(env, room, playerId, attemptId) {
   if (updateResult.meta?.changes === 1) {
     return { accepted: true, room: await findRoomD1(env, room.code) };
   }
-
   return {
     accepted: false,
     stale: false,
@@ -413,20 +1193,20 @@ function streamEvents(code, playerId, request, env) {
   const stream = new ReadableStream({
     async start(controller) {
       const sendRoom = async () => {
-        if (closed) return;
+        if (closed) return null;
         try {
           const room = await loadRoomState(env, code);
           if (!room) {
             emit(controller, 'error', { error: 'Room no longer exists.' });
             controller.close();
-            return;
+            return null;
           }
           if (!room.players.some((entry) => entry.id === playerId)) {
             emit(controller, 'error', { error: 'Join the room first.' });
             controller.close();
-            return;
+            return null;
           }
-          emit(controller, 'snapshot', snapshot(room));
+          emitSnapshot(controller, room);
           return room.sequence;
         } catch (error) {
           emit(controller, 'error', { error: error instanceof Error ? error.message : 'Unable to read room.' });
@@ -444,14 +1224,6 @@ function streamEvents(code, playerId, request, env) {
         const sequence = await sendRoom();
         if (typeof sequence === 'number' && sequence !== lastSequence) {
           lastSequence = sequence;
-          const room = await loadRoomState(env, code);
-          if (!room) {
-            emit(controller, 'error', { error: 'Room no longer exists.' });
-            controller.close();
-            clearInterval(timer);
-            return;
-          }
-          emit(controller, 'room', snapshot(room));
         }
       }, POLL_MS);
     },
@@ -473,6 +1245,71 @@ function streamEvents(code, playerId, request, env) {
   });
 }
 
+function normalizeQuestionImportInput(input) {
+  const bankCode = safeQuestionBank(input.bankCode || DEFAULT_QUESTION_BANK);
+  const format = String(input.format || 'csv').toLowerCase();
+  const content = String(input.content || '');
+  const publish = Boolean(input.publish);
+  return { bankCode, format, content, publish };
+}
+
+function questionsApiPreview(input) {
+  const parsed = parseQuestionBankInput(input);
+  return json({
+    ok: parsed.errors.length === 0,
+    bankCode: input.bankCode || DEFAULT_QUESTION_BANK,
+    format: parsed.format,
+    rowCount: parsed.records.length,
+    errorCount: parsed.errors.length,
+    errors: parsed.errors,
+    preview: parsed.records.slice(0, 3),
+  }, parsed.errors.length ? 400 : 200);
+}
+
+async function questionsApiImport(input, env) {
+  const { bankCode, format, content, publish } = normalizeQuestionImportInput(input);
+  const parsed = parseQuestionBankInput({ bankCode, format, content });
+  if (parsed.errors.length) {
+    return json({
+      ok: false,
+      bankCode,
+      revision: null,
+      errorCount: parsed.errors.length,
+      errors: parsed.errors,
+    }, 400);
+  }
+
+  if (hasD1(env)) {
+    const imported = await importQuestionRevisionD1(env, bankCode, parsed.records, publish);
+    return json({ ok: true, ...imported });
+  }
+
+  const imported = importQuestionRevisionMemory(bankCode, parsed.records, publish);
+  return json({ ok: true, ...imported });
+}
+
+async function questionsApiActivate(input, env) {
+  const bankCode = safeQuestionBank(input.bankCode || DEFAULT_QUESTION_BANK);
+  const revision = toSafeInt(input.revision, 0);
+  if (!revision) {
+    return json({ error: 'revision is required.' }, 400);
+  }
+  if (hasD1(env)) {
+    try {
+      const activated = await activateQuestionRevisionD1(env, bankCode, revision);
+      return json({ ok: true, ...activated });
+    } catch (error) {
+      return json({ error: error.message }, error.code || 500);
+    }
+  }
+  try {
+    const activated = activateQuestionRevisionMemory(bankCode, revision);
+    return json({ ok: true, ...activated });
+  } catch (error) {
+    return json({ error: error.message }, error.code || 500);
+  }
+}
+
 async function handleApi(request, url, env) {
   if (request.method === 'GET' && url.pathname === '/api/health') {
     if (hasD1(env)) {
@@ -484,28 +1321,49 @@ async function handleApi(request, url, env) {
     return json({ ok: true, rooms: rooms.size });
   }
 
-  if (request.method === 'POST' && url.pathname === '/api/rooms/join') {
+  if (request.method === 'POST' && url.pathname === '/api/questions/preview') {
     const input = await request.json();
-    const code = cleanCode(input.roomCode);
-    const name = safeName(input.name);
-    const playerId = safePlayerId(input.playerId);
-    if (!code || !name || !playerId) return json({ error: 'Room code and display name are required.' }, 400);
+    return questionsApiPreview({
+      bankCode: input.bankCode,
+      format: input.format || 'csv',
+      content: input.content || '',
+    });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/questions/import') {
+    const input = await request.json();
+    return questionsApiImport(input, env);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/questions/activate') {
+    const input = await request.json();
+    return questionsApiActivate(input, env);
+  }
 
-    if (hasD1(env)) {
+  if (request.method === 'POST' && url.pathname === '/api/rooms/join') {
+    try {
+      const input = await request.json();
+      const code = cleanCode(input.roomCode);
+      const name = safeName(input.name);
+      const playerId = safePlayerId(input.playerId);
+      const questionBank = safeQuestionBank(input.questionBank);
+      if (!code || !name || !playerId) return json({ error: 'Room code and display name are required.' }, 400);
+
+      if (hasD1(env)) {
+        try {
+          const room = await ensureRoomD1(env, code, playerId, name, questionBank);
+          if (!room) return json({ error: 'Unable to join room.' }, 500);
+          return json(snapshot(room));
+        } catch (error) {
+          return json({ error: error.message || 'Unable to join room.' }, error.code || 400);
+        }
+      }
       try {
-        const room = await ensureRoomD1(env, code, playerId, name);
-        if (!room) return json({ error: 'Unable to join room.' }, 500);
+        const room = await ensureRoomMemory(code, playerId, name, questionBank);
         return json(snapshot(room));
       } catch (error) {
         return json({ error: error.message || 'Unable to join room.' }, error.code || 400);
       }
-    }
-
-    try {
-      const room = await ensureRoomMemory(code, playerId, name);
-      return json(snapshot(room));
     } catch (error) {
-      return json({ error: error.message || 'Unable to join room.' }, error.code || 400);
+      return json({ error: error.message || 'Invalid request.' }, 400);
     }
   }
 
@@ -536,7 +1394,7 @@ async function handleApi(request, url, env) {
       try {
         const started = await startAttemptD1(env, room, playerId);
         const latest = await findRoomD1(env, started.code);
-        return json(buildRoomStateResponse(latest));
+        return json(buildRoomStateResponse(latest || started));
       } catch (error) {
         return json({ error: error.message }, error.code || 400);
       }

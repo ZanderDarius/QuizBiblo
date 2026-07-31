@@ -17,7 +17,7 @@ test('serves the current site version', async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<title>QuizBiblo<\/title>/);
-  assert.match(html, /Build version: 0\.1\.4/);
+  assert.match(html, /Build version: 0\.1\.6/);
   assert.doesNotMatch(html, /buzz test|live-room demo/i);
 });
 
@@ -195,7 +195,7 @@ test('keeps an active revision stable until new revision is explicitly activated
   const startImportA = await request('/api/questions/import', 'POST', {
     bankCode,
     format: 'csv',
-    content: BAD_TYPE_CSV.replace('Essay', 'Regular'),
+    content: BAD_TYPE_CSV,
     publish: true,
   });
   assert.equal((await startImportA).status, 400);
@@ -211,7 +211,7 @@ test('keeps an active revision stable until new revision is explicitly activated
 
   const secondImport = await request('/api/questions/import', 'POST', {
     bankCode,
-    format: 'csv',
+    format: 'tsv',
     content: TSV_SAMPLE,
     publish: false,
   });

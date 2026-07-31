@@ -278,18 +278,18 @@ function validateQuestionRecord(row, rowNumber, seenIds, errors, fieldIndex) {
 
   if (containsUnsupportedField(id)) errors.push(nowRowError(rowNumber, 'questionId', 'question id contains unsupported markup'));
   if (containsUnsupportedField(type)) errors.push(nowRowError(rowNumber, 'questionType', 'question type contains unsupported markup'));
-  if (containsUnsafeMarkup(officialQuestion)) {
+  if (hasUnsafeMarkup(officialQuestion)) {
     errors.push(nowRowError(rowNumber, 'officialQuestion', 'official question contains unsupported markup'));
   }
-  if (containsUnsafeMarkup(spokenQuestion)) errors.push(nowRowError(rowNumber, 'spokenQuestion', 'spoken question contains unsupported markup'));
-  if (containsUnsafeMarkup(expectedAnswer)) errors.push(nowRowError(rowNumber, 'expectedAnswer', 'expected answer contains unsupported markup'));
-  if (containsUnsafeMarkup(reference)) errors.push(nowRowError(rowNumber, 'reference', 'reference contains unsupported markup'));
-  if (containsUnsafeMarkup(explanation)) errors.push(nowRowError(rowNumber, 'explanation', 'explanation contains unsupported markup'));
-  if (containsUnsafeMarkup(introRemarks)) errors.push(nowRowError(rowNumber, 'introRemarks', 'intro remarks contain unsupported markup'));
-  if (containsUnsafeMarkup(interruptionRequirements)) {
+  if (hasUnsafeMarkup(spokenQuestion)) errors.push(nowRowError(rowNumber, 'spokenQuestion', 'spoken question contains unsupported markup'));
+  if (hasUnsafeMarkup(expectedAnswer)) errors.push(nowRowError(rowNumber, 'expectedAnswer', 'expected answer contains unsupported markup'));
+  if (hasUnsafeMarkup(reference)) errors.push(nowRowError(rowNumber, 'reference', 'reference contains unsupported markup'));
+  if (hasUnsafeMarkup(explanation)) errors.push(nowRowError(rowNumber, 'explanation', 'explanation contains unsupported markup'));
+  if (hasUnsafeMarkup(introRemarks)) errors.push(nowRowError(rowNumber, 'introRemarks', 'intro remarks contain unsupported markup'));
+  if (hasUnsafeMarkup(interruptionRequirements)) {
     errors.push(nowRowError(rowNumber, 'interruptionRequirements', 'interruption requirements contain unsupported markup'));
   }
-  if (containsUnsafeMarkup(pronunciationHints)) errors.push(nowRowError(rowNumber, 'pronunciationHints', 'pronunciation hints contain unsupported markup'));
+  if (hasUnsafeMarkup(pronunciationHints)) errors.push(nowRowError(rowNumber, 'pronunciationHints', 'pronunciation hints contain unsupported markup'));
 
   if (officialQuestion.length > MAX_FIELD_LENGTH) {
     errors.push(nowRowError(rowNumber, 'officialQuestion', 'official question is too long'));

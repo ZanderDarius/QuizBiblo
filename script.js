@@ -4,6 +4,7 @@ const state = {
   roomCode: '',
   name: '',
   isHost: false,
+  questionBank: 'default',
   phase: 'lobby',
   reader: null,
   question: '',
@@ -25,6 +26,18 @@ const startBtn = $('#startBtn');
 const readingState = $('#readingState');
 const roundStatus = $('#roundStatus');
 const connectionStatus = $('#connectionStatus');
+const questionBankInput = $('#questionBankInput');
+const questionFileInput = $('#questionFileInput');
+const questionFormat = $('#questionFormat');
+const publishOnImport = $('#publishOnImport');
+const previewQuestionsBtn = $('#previewQuestionsBtn');
+const importQuestionsBtn = $('#importQuestionsBtn');
+const activateQuestionsBtn = $('#activateQuestionsBtn');
+const importStatus = $('#importStatus');
+const importPreview = $('#importPreview');
+
+let pendingQuestionRevision = null;
+let importedQuestionBank = state.questionBank;
 
 function makeRoomCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -43,6 +56,75 @@ async function post(path, payload) {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Unable to reach the room.');
   return data;
+}
+
+async function requestJson(path, payload) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, data };
+}
+
+function currentQuestionBank() {
+  return String(questionBankInput.value || 'default').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'default';
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Unable to read selected file.'));
+    reader.readAsText(file);
+  });
+}
+
+function inferredFileFormat(file) {
+  const name = String(file?.name || '').toLowerCase();
+  if (name.endsWith('.tsv')) return 'tsv';
+  return 'csv';
+}
+
+function setImportStatus(message, isError = false) {
+  importStatus.textContent = message;
+  importStatus.style.color = isError ? '#7a1d1d' : '';
+}
+
+function showImportPreview(preview) {
+  if (!preview?.length) {
+    importPreview.hidden = true;
+    importPreview.textContent = '';
+    return;
+  }
+  importPreview.textContent = preview
+    .map((row, index) => `${index + 1}. ${row.questionId} (${row.questionType}) — ${row.officialQuestion}`)
+    .join('\n');
+  importPreview.hidden = false;
+}
+
+function showImportErrors(errors) {
+  if (!errors?.length) {
+    importPreview.hidden = true;
+    importPreview.textContent = '';
+    return;
+  }
+  importPreview.textContent = errors
+    .slice(0, 30)
+    .map((error) => `Row ${error.row}, ${error.field}: ${error.message}`)
+    .join('\n');
+  importPreview.hidden = false;
+}
+
+function resetQuestionImportState(message = 'Upload CSV or TSV to preview before import.') {
+  setImportStatus(message);
+  importPreview.hidden = true;
+  importPreview.textContent = '';
+  pendingQuestionRevision = null;
+  importedQuestionBank = currentQuestionBank();
+  importQuestionsBtn.disabled = true;
+  activateQuestionsBtn.disabled = true;
 }
 
 function playerListHtml(room) {
@@ -153,18 +235,117 @@ function applyRoomSnapshot(room) {
   state.phase = 'waiting';
 }
 
+async function previewQuestions() {
+  const file = questionFileInput.files?.[0];
+  if (!file) {
+    setImportStatus('Please choose a file first.', true);
+    return;
+  }
+  const format = questionFormat.value || inferredFileFormat(file);
+  if (/\.tsv$/i.test(file.name)) {
+    questionFormat.value = 'tsv';
+  }
+
+  try {
+    const content = await readFileAsText(file);
+    const bankCode = currentQuestionBank();
+    setImportStatus('Running preview...');
+    const { ok, data } = await requestJson('/api/questions/preview', { bankCode, format, content });
+    if (!ok) {
+      pendingQuestionRevision = null;
+      showImportErrors(data?.errors || []);
+      setImportStatus(`Preview failed: ${data?.errorCount || 0} errors.`, true);
+      importQuestionsBtn.disabled = true;
+      activateQuestionsBtn.disabled = true;
+      return;
+    }
+    importedQuestionBank = bankCode;
+    showImportPreview(data?.preview || []);
+    setImportStatus(`Preview ok: ${data.rowCount} rows, ${data.errorCount} errors.`);
+    importQuestionsBtn.disabled = data.rowCount < 1;
+    activateQuestionsBtn.disabled = true;
+  } catch (error) {
+    setImportStatus(error.message || 'Unable to preview questions.', true);
+    showImportErrors([{ row: 1, field: 'content', message: error.message || 'Unable to preview questions.' }]);
+  }
+}
+
+async function importQuestions() {
+  const file = questionFileInput.files?.[0];
+  if (!file) {
+    setImportStatus('Please choose a file first.', true);
+    return;
+  }
+  const format = questionFormat.value || inferredFileFormat(file);
+  if (/\.tsv$/i.test(file.name)) {
+    questionFormat.value = 'tsv';
+  }
+
+  try {
+    const content = await readFileAsText(file);
+    const bankCode = currentQuestionBank();
+    setImportStatus('Importing questions...');
+    const { ok, data } = await requestJson('/api/questions/import', {
+      bankCode,
+      format,
+      content,
+      publish: publishOnImport.checked,
+    });
+    if (!ok) {
+      showImportErrors(data?.errors || []);
+      setImportStatus(`Import failed: ${data?.error || 'Request failed.'}`, true);
+      return;
+    }
+    importedQuestionBank = bankCode;
+    pendingQuestionRevision = data.revision || null;
+    setImportStatus(`Imported revision ${pendingQuestionRevision || 'n/a'} (${data.status}).`);
+    importQuestionsBtn.disabled = true;
+    activateQuestionsBtn.disabled = !!publishOnImport.checked || !pendingQuestionRevision;
+    showImportPreview([]);
+  } catch (error) {
+    setImportStatus(error.message || 'Unable to import questions.', true);
+  }
+}
+
+async function activateImportedRevision() {
+  if (!pendingQuestionRevision) {
+    setImportStatus('No revision is ready to activate.', true);
+    return;
+  }
+  try {
+    const bankCode = importedQuestionBank || currentQuestionBank();
+    setImportStatus(`Activating revision ${pendingQuestionRevision}...`);
+    const { ok, data } = await requestJson('/api/questions/activate', { bankCode, revision: pendingQuestionRevision });
+    if (!ok) {
+      setImportStatus(data?.error || 'Unable to activate revision.', true);
+      return;
+    }
+    setImportStatus(`Activated revision ${data.revision} as live.`);
+    activateQuestionsBtn.disabled = true;
+  } catch (error) {
+    setImportStatus(error.message || 'Unable to activate revision.', true);
+  }
+}
+
 async function joinRoom(create) {
   const name = nameInput.value.trim();
   const code = create ? makeRoomCode() : roomCode();
+  const bankCode = currentQuestionBank();
   if (!name || !code) {
     readingState.textContent = 'Enter a display name and room code.';
     return;
   }
   try {
-    const joined = await post('/api/rooms/join', { roomCode: code, name, playerId: state.playerId });
+    const joined = await post('/api/rooms/join', {
+      roomCode: code,
+      name,
+      playerId: state.playerId,
+      questionBank: bankCode,
+    });
     state.roomCode = joined.roomCode;
     state.name = name;
     state.isHost = joined.hostId === state.playerId;
+    state.questionBank = bankCode;
     state.attemptId = joined.attemptId || 0;
     state.roomSequence = joined.sequence || 0;
     $('#lobby').hidden = true;
@@ -248,6 +429,24 @@ async function buzz() {
 
 startBtn.addEventListener('click', startQuestion);
 buzzBtn.addEventListener('click', buzz);
+previewQuestionsBtn.addEventListener('click', previewQuestions);
+importQuestionsBtn.addEventListener('click', importQuestions);
+activateQuestionsBtn.addEventListener('click', activateImportedRevision);
+questionFileInput.addEventListener('change', () => {
+  resetQuestionImportState();
+  const file = questionFileInput.files?.[0];
+  if (file && /\.tsv$/i.test(file.name)) {
+    questionFormat.value = 'tsv';
+  }
+});
+questionFormat.addEventListener('change', resetQuestionImportState);
+questionBankInput.addEventListener('input', () => {
+  state.questionBank = currentQuestionBank();
+  resetQuestionImportState();
+});
+publishOnImport.addEventListener('change', () => {
+  activateQuestionsBtn.disabled = publishOnImport.checked || !pendingQuestionRevision;
+});
 $('#createRoomBtn').addEventListener('click', () => joinRoom(true));
 $('#joinRoomBtn').addEventListener('click', () => joinRoom(false));
 
@@ -257,3 +456,5 @@ document.addEventListener('keydown', (event) => {
     buzz();
   }
 });
+
+resetQuestionImportState();

@@ -10,13 +10,36 @@
   <main class="app-shell">
     <header class="hero">
       <p class="eyebrow">QuizBiblo</p>
-      <p class="muted">Build version: 0.1.5</p>
+      <p class="muted">Build version: 0.1.6</p>
       <h1>Who buzzed first?</h1>
       <p>Open this page on two computers, join the same room, and press <kbd>Space</kbd> while the question is reading.</p>
     </header>
 
     <section class="panel lobby" id="lobby">
       <h2>Join a two-player room</h2>
+      <div class="question-admin">
+        <p class="section-label">Question bank</p>
+        <label>Bank code<input id="questionBankInput" maxlength="24" value="default" autocomplete="off"></label>
+        <label>Upload questions<input id="questionFileInput" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values"></label>
+        <label>Format
+          <select id="questionFormat">
+            <option value="csv">CSV</option>
+            <option value="tsv">TSV</option>
+          </select>
+        </label>
+        <label class="inline-toggle">
+          <input id="publishOnImport" type="checkbox">
+          Publish immediately
+        </label>
+        <div class="admin-actions">
+          <button id="previewQuestionsBtn">Preview upload</button>
+          <button id="importQuestionsBtn" disabled>Import</button>
+          <button id="activateQuestionsBtn" disabled>Activate imported revision</button>
+        </div>
+        <p id="importStatus" class="muted">Upload CSV or TSV to preview before import.</p>
+        <pre id="importPreview" class="import-preview" hidden></pre>
+      </div>
+
       <div class="lobby-fields">
         <label>Display name<input id="nameInput" maxlength="24" placeholder="Your name" autocomplete="name"></label>
         <label>Room code<input id="roomInput" maxlength="8" placeholder="e.g. BIBLE42" autocapitalize="characters"></label>

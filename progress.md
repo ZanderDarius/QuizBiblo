@@ -46,3 +46,11 @@ Original prompt: Increment the site version and follow the complete GitHub and C
   `https://quizbiblo.eveandk.chatgpt.site`.
 - Fresh-browser verification returned HTTP 200 with title `QuizBiblo`, build 0.1.4,
   no old `buzz test` label, and no console errors.
+
+## 2026-07-31 - Issue 4 compatibility planning
+
+- Completed Issue 4 research delivery as a no-typing dictation compatibility report: esearch/windows-voice-typing-dictation-compatibility.md.
+- Baseline selected: Windows Voice Typing as primary, Chrome dictation when feature-detected.
+- Fallback selected: Done Speaking control + inactivity timeout.
+- Privacy baseline explicitly confirmed: no raw microphone audio uploads or storage for the baseline.
+

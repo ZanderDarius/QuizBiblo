@@ -17,7 +17,7 @@ test('serves the current site version', async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<title>QuizBiblo<\/title>/);
-  assert.match(html, /Build version: 0\.1\.6/);
+  assert.match(html, /Build version: 0\.1\.7/);
   assert.doesNotMatch(html, /buzz test|live-room demo/i);
 });
 
@@ -247,4 +247,16 @@ test('keeps an active revision stable until new revision is explicitly activated
   assert.equal(thirdStartBody.questionRevision, secondImportBody.revision);
   assert.equal(thirdStartBody.questionId, secondImportBody.revision > 0 ? 'QY1' : null);
   assert.notEqual(thirdStartBody.questionId, firstQuestionId);
+});
+
+test('keeps speech credentials server-side and rejects unconfigured synthesis', async () => {
+  const response = await request('/api/speech/synthesize', 'POST', {
+    roomCode: 'NOSECRET',
+    playerId: 'player',
+    questionId: 'Q-100',
+  });
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.error, 'Speech is not configured.');
+  assert.doesNotMatch(JSON.stringify(body), /Ocp-Apim|AZURE_SPEECH_KEY|subscription-key/i);
 });

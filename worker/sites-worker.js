@@ -1253,6 +1253,83 @@ function normalizeQuestionImportInput(input) {
   return { bankCode, format, content, publish };
 }
 
+function escapeXml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function speechSsml(text, voice = 'en-US-JennyNeural', rate = '0%') {
+  return `<speak version="1.0" xml:lang="en-US"><voice name="${escapeXml(voice)}"><prosody rate="${escapeXml(rate)}">${escapeXml(text)}</prosody></voice></speak>`;
+}
+
+function speechTextForQuestion(question) {
+  return question.spokenQuestion || question.officialQuestion || '';
+}
+
+async function getApprovedQuestionForSpeech(env, room, questionId) {
+  const requestedId = String(questionId || room.questionId || '').trim();
+  if (!requestedId || requestedId !== String(room.questionId || '').trim()) return null;
+  if (hasD1(env)) {
+    const questions = await getActiveQuestionCatalogD1(env, room.questionBank, room.questionRevision);
+    return questions.find((question) => question.questionId === requestedId) || null;
+  }
+  const questions = questionsForMemoryRevision(room.questionBank, room.questionRevision);
+  return questions.find((question) => question.questionId === requestedId) || null;
+}
+
+async function speechApi(input, env) {
+  const key = String(env.AZURE_SPEECH_KEY || '').trim();
+  const region = String(env.AZURE_SPEECH_REGION || 'eastus').trim().toLowerCase();
+  if (!key) return json({ error: 'Speech is not configured.' }, 503);
+  const roomCode = cleanCode(input.roomCode);
+  const playerId = safePlayerId(input.playerId);
+  if (!roomCode || !playerId) return json({ error: 'A current room and player are required.' }, 400);
+
+  const room = await loadRoomState(env, roomCode);
+  if (!room || !room.players.some((player) => player.id === playerId)) return json({ error: 'Join the room first.' }, 403);
+  const question = await getApprovedQuestionForSpeech(env, room, input.questionId);
+  if (!question) return json({ error: 'Only the current approved question may be synthesized.' }, 404);
+
+  const voice = 'en-US-JennyNeural';
+  const text = speechTextForQuestion(question);
+  if (!text || text.length > MAX_FIELD_LENGTH) return json({ error: 'The approved speech text is invalid.' }, 400);
+  const endpoint = `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`;
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': key,
+        'Content-Type': 'application/ssml+xml',
+        'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
+        'User-Agent': 'QuizBiblo/0.1.7',
+      },
+      body: speechSsml(text, voice),
+    });
+  } catch {
+    return json({ error: 'Speech service is temporarily unavailable.' }, 503);
+  }
+  if (!response.ok) {
+    const status = response.status === 401 || response.status === 403 ? 502 : response.status === 429 ? 429 : 503;
+    return json({ error: status === 429 ? 'Speech quota is busy. Try again shortly.' : 'Speech service could not prepare audio.' }, status);
+  }
+  const audio = await response.arrayBuffer();
+  if (!audio.byteLength) return json({ error: 'Speech service returned empty audio.' }, 502);
+  return new Response(audio, {
+    headers: {
+      'content-type': 'audio/mpeg',
+      'cache-control': 'private, max-age=300',
+      'x-quizbiblo-question-id': question.questionId,
+      'x-quizbiblo-question-revision': String(room.questionRevision || 0),
+      'x-quizbiblo-attempt-id': String(room.attemptId || 0),
+    },
+  });
+}
+
 function questionsApiPreview(input) {
   const parsed = parseQuestionBankInput(input);
   return json({
@@ -1336,6 +1413,10 @@ async function handleApi(request, url, env) {
   if (request.method === 'POST' && url.pathname === '/api/questions/activate') {
     const input = await request.json();
     return questionsApiActivate(input, env);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/speech/synthesize') {
+    const input = await request.json();
+    return speechApi(input, env);
   }
 
   if (request.method === 'POST' && url.pathname === '/api/rooms/join') {

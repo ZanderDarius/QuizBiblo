@@ -10,10 +10,57 @@
   <main class="app-shell">
     <header class="hero">
       <p class="eyebrow">QuizBiblo</p>
-      <p class="muted">Build version: 0.1.7</p>
+      <div class="hero-meta"><p class="muted">Build version: 0.1.8</p><button id="settingsBtn" class="settings-button" type="button">Settings</button></div>
       <h1>Who buzzed first?</h1>
       <p>Open this page on two computers, join the same room, and press <kbd>Space</kbd> while the question is reading.</p>
     </header>
+
+    <dialog id="settingsDialog" class="settings-dialog">
+      <div class="settings-window">
+        <header class="settings-header">
+          <div><p class="eyebrow">QuizBiblo</p><h2>Settings</h2></div>
+          <button id="closeSettingsBtn" type="button" aria-label="Close settings">Close</button>
+        </header>
+        <div class="settings-layout">
+          <nav class="settings-tabs" aria-label="Settings sections">
+            <button class="settings-tab active" type="button" data-settings-tab="general">General</button>
+            <button class="settings-tab" type="button" data-settings-tab="speech">Speech</button>
+            <button class="settings-tab" type="button" data-settings-tab="ai">AI provider</button>
+          </nav>
+          <div class="settings-content">
+            <section data-settings-panel="general">
+              <p class="section-label">General</p>
+              <h3>Practice preferences</h3>
+              <p class="muted">Choose how QuizBiblo prepares a voice-first practice session.</p>
+              <label>Transcript retention<select id="transcriptRetention"><option value="none">Do not save transcripts</option><option value="30-days">Keep for 30 days</option><option value="until-deleted">Keep until deleted</option></select></label>
+              <label class="settings-check"><input id="practiceOnlySetting" type="checkbox" checked> Show practice-only reminder</label>
+            </section>
+            <section data-settings-panel="speech" hidden>
+              <p class="section-label">Read Aloud</p>
+              <h3>Speech provider</h3>
+              <p class="muted">This mirrors WritingTools. The Azure key belongs in Sites hosted secrets, not browser storage.</p>
+              <label>Speech provider<select id="speechProvider"><option value="azure">Microsoft Azure Speech</option><option value="browser">Browser fallback</option></select></label>
+              <label>Azure Speech resource key<input id="speechKey" type="password" autocomplete="off" placeholder="Add as a Sites secret: AZURE_SPEECH_KEY"></label>
+              <label>Azure Speech region<input id="speechRegion" value="eastus" autocomplete="off" placeholder="eastus"></label>
+              <label>English Read Aloud voice<select id="speechVoice"><option value="en-US-JennyNeural">Jenny (English, natural)</option><option value="en-US-AriaNeural">Aria (English, expressive)</option><option value="en-US-GuyNeural">Guy (English, clear)</option></select></label>
+              <button id="testSpeechBtn" type="button">Test selected voice</button>
+              <p class="settings-note">The browser field is not saved. Add the real key to Sites as <code>AZURE_SPEECH_KEY</code> and set <code>AZURE_SPEECH_REGION</code> to <code>eastus</code>.</p>
+            </section>
+            <section data-settings-panel="ai" hidden>
+              <p class="section-label">Writing and grading</p>
+              <h3>AI provider</h3>
+              <p class="muted">Select the provider used for answer grading and future coaching tools.</p>
+              <label>AI provider<select id="aiProvider"><option value="openai">OpenAI</option><option value="azure-openai">Azure OpenAI</option><option value="local">Local / test provider</option></select></label>
+              <label>API key<input id="aiKey" type="password" autocomplete="off" placeholder="Add as a hosted secret, never in GitHub"></label>
+              <label>Model<input id="aiModel" value="gpt-4.1-mini" autocomplete="off" placeholder="Model name"></label>
+              <label>Grading mode<select id="gradingMode"><option value="review-uncertain">Send uncertain answers to review</option><option value="strict">Strict approved-answer matching</option></select></label>
+              <p class="settings-note">Keys are intentionally not stored in this browser. The server will use the configured hosted provider after the grading service is enabled.</p>
+            </section>
+          </div>
+        </div>
+        <footer class="settings-footer"><p id="settingsStatus" class="muted">Settings are ready.</p><button id="saveSettingsBtn" class="primary-button" type="button">Save settings</button></footer>
+      </div>
+    </dialog>
 
     <section class="panel lobby" id="lobby">
       <h2>Join a two-player room</h2>

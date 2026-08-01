@@ -35,6 +35,55 @@ const importQuestionsBtn = $('#importQuestionsBtn');
 const activateQuestionsBtn = $('#activateQuestionsBtn');
 const importStatus = $('#importStatus');
 const importPreview = $('#importPreview');
+const settingsDialog = $('#settingsDialog');
+const settingsBtn = $('#settingsBtn');
+const closeSettingsBtn = $('#closeSettingsBtn');
+const saveSettingsBtn = $('#saveSettingsBtn');
+const settingsStatus = $('#settingsStatus');
+const testSpeechBtn = $('#testSpeechBtn');
+
+const settingsFields = {
+  transcriptRetention: $('#transcriptRetention'),
+  practiceOnly: $('#practiceOnlySetting'),
+  speechProvider: $('#speechProvider'),
+  speechRegion: $('#speechRegion'),
+  speechVoice: $('#speechVoice'),
+  aiProvider: $('#aiProvider'),
+  aiModel: $('#aiModel'),
+  gradingMode: $('#gradingMode'),
+};
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('quizbiblo-settings') || '{}');
+    Object.entries(settingsFields).forEach(([name, field]) => {
+      if (saved[name] === undefined || !field) return;
+      if (field.type === 'checkbox') field.checked = Boolean(saved[name]);
+      else field.value = saved[name];
+    });
+  } catch {
+    settingsStatus.textContent = 'Using default settings.';
+  }
+}
+
+function openSettings(tab = 'general') {
+  document.querySelectorAll('[data-settings-tab]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.settingsTab === tab);
+  });
+  document.querySelectorAll('[data-settings-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.settingsPanel !== tab;
+  });
+  settingsDialog.showModal();
+}
+
+function saveSettings() {
+  const saved = {};
+  Object.entries(settingsFields).forEach(([name, field]) => {
+    saved[name] = field.type === 'checkbox' ? field.checked : field.value;
+  });
+  localStorage.setItem('quizbiblo-settings', JSON.stringify(saved));
+  settingsStatus.textContent = 'Browser preferences saved. Hosted keys still belong in Sites secrets.';
+}
 
 let pendingQuestionRevision = null;
 let importedQuestionBank = state.questionBank;
@@ -447,6 +496,19 @@ questionBankInput.addEventListener('input', () => {
 publishOnImport.addEventListener('change', () => {
   activateQuestionsBtn.disabled = publishOnImport.checked || !pendingQuestionRevision;
 });
+settingsBtn.addEventListener('click', () => openSettings());
+closeSettingsBtn.addEventListener('click', () => settingsDialog.close());
+saveSettingsBtn.addEventListener('click', saveSettings);
+testSpeechBtn.addEventListener('click', () => {
+  settingsStatus.textContent = 'Voice test is ready once AZURE_SPEECH_KEY is configured in Sites.';
+  openSettings('speech');
+});
+document.querySelectorAll('[data-settings-tab]').forEach((button) => {
+  button.addEventListener('click', () => openSettings(button.dataset.settingsTab));
+});
+settingsDialog.addEventListener('click', (event) => {
+  if (event.target === settingsDialog) settingsDialog.close();
+});
 $('#createRoomBtn').addEventListener('click', () => joinRoom(true));
 $('#joinRoomBtn').addEventListener('click', () => joinRoom(false));
 
@@ -458,3 +520,4 @@ document.addEventListener('keydown', (event) => {
 });
 
 resetQuestionImportState();
+loadSettings();

@@ -17,7 +17,7 @@ test('serves the current site version', async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<title>QuizBiblo<\/title>/);
-  assert.match(html, /Build version: 0\.1\.7/);
+  assert.match(html, /Build version: 0\.1\.8/);
   assert.doesNotMatch(html, /buzz test|live-room demo/i);
 });
 

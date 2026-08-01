@@ -1306,7 +1306,7 @@ async function speechApi(input, env) {
         'Ocp-Apim-Subscription-Key': key,
         'Content-Type': 'application/ssml+xml',
         'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
-        'User-Agent': 'QuizBiblo/0.1.7',
+        'User-Agent': 'QuizBiblo/0.1.8',
       },
       body: speechSsml(text, voice),
     });

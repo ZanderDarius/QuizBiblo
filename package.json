@@ -5,7 +5,7 @@
   "scripts": {
     "build": "node build.js",
     "start": "node server.js",
-    "check": "node --check server.js && node --check script.js && node --check build.js && node --check worker/sites-worker.js",
+    "check": "node --check server.js && node --check script.js && node --check dev-settings.js && node --check build.js && node --check worker/sites-worker.js",
     "test": "npm run build && node --test tests/sites-worker.test.mjs"
   }
 }

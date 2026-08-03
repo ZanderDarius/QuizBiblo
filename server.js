@@ -5,6 +5,12 @@ const path = require('path');
 const port = Number(process.env.PORT || 3101);
 const root = __dirname;
 const rooms = new Map();
+const devSecrets = {
+  azureSpeechKey: '',
+  azureSpeechRegion: 'eastus',
+  openaiApiKey: '',
+  openaiModel: 'gpt-4.1-mini',
+};
 const questions = [
   'According to John 11:25, who said, “I am the resurrection and the life”?',
   'To whom did Jesus say, “I am the resurrection and the life”?',
@@ -21,9 +27,46 @@ function emit(response, event, payload) { response.write(`event: ${event}\ndata:
 function broadcast(room, event, payload) { for (const response of room.connections.values()) emit(response, event, payload); }
 function broadcastRoom(room) { broadcast(room, 'room', snapshot(room)); }
 function getRoom(url) { const match = url.pathname.match(/^\/api\/rooms\/([A-Z0-9]+)(?:\/|$)/); return match ? rooms.get(match[1]) : null; }
+function isLoopback(request) { const address = String(request.socket.remoteAddress || '').replace(/^::ffff:/, ''); return address === '127.0.0.1' || address === '::1'; }
+function devStatus() { return { azureSpeechConfigured: Boolean(devSecrets.azureSpeechKey), azureSpeechRegion: devSecrets.azureSpeechRegion, openaiConfigured: Boolean(devSecrets.openaiApiKey), openaiModel: devSecrets.openaiModel }; }
+function escapeXml(value) { return String(value).replace(/[<>&'\"]/g, (character) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' })[character]); }
+function speechSsml(text) { return `<speak version="1.0" xml:lang="en-US"><voice name="en-US-JennyNeural">${escapeXml(text)}</voice></speak>`; }
+async function synthesizeDevSpeech(text) {
+  if (!devSecrets.azureSpeechKey) return { status: 503, body: { error: 'Azure Speech key is not configured.' } };
+  const region = devSecrets.azureSpeechRegion || 'eastus';
+  const endpoint = `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`;
+  let result;
+  try {
+    result = await fetch(endpoint, { method: 'POST', headers: { 'Ocp-Apim-Subscription-Key': devSecrets.azureSpeechKey, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-16khz-128kbitrate-mono-mp3' }, body: speechSsml(text) });
+  } catch { return { status: 502, body: { error: 'Unable to reach Azure Speech.' } }; }
+  if (!result.ok) return { status: result.status === 429 ? 429 : 502, body: { error: 'Azure Speech rejected the test request.' } };
+  return { status: 200, audio: Buffer.from(await result.arrayBuffer()) };
+}
 
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
+  if (url.pathname.startsWith('/__dev/') && !isLoopback(request)) return send(response, 404, 'Not found', 'text/plain; charset=utf-8');
+  if (request.method === 'GET' && url.pathname === '/__dev/settings') return fs.readFile(path.join(root, 'dev-settings.html'), (error, data) => error ? send(response, 404, 'Not found', 'text/plain; charset=utf-8') : send(response, 200, data, 'text/html; charset=utf-8'));
+  if (request.method === 'GET' && url.pathname === '/__dev/status') return send(response, 200, devStatus());
+  if (request.method === 'POST' && url.pathname === '/__dev/settings') {
+    try {
+      const input = await readJson(request);
+      devSecrets.azureSpeechKey = String(input.azureSpeechKey || '').trim().slice(0, 512);
+      devSecrets.azureSpeechRegion = String(input.azureSpeechRegion || 'eastus').trim().toLowerCase().slice(0, 32) || 'eastus';
+      devSecrets.openaiApiKey = String(input.openaiApiKey || '').trim().slice(0, 512);
+      devSecrets.openaiModel = String(input.openaiModel || 'gpt-4.1-mini').trim().slice(0, 128) || 'gpt-4.1-mini';
+      return send(response, 200, devStatus());
+    } catch (error) { return send(response, 400, { error: error.message }); }
+  }
+  if (request.method === 'POST' && url.pathname === '/__dev/speech/test') {
+    try {
+      const input = await readJson(request); const text = String(input.text || '').trim().slice(0, 500);
+      if (!text) return send(response, 400, { error: 'Test text is required.' });
+      const result = await synthesizeDevSpeech(text);
+      if (result.audio) { response.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' }); return response.end(result.audio); }
+      return send(response, result.status, result.body);
+    } catch (error) { return send(response, 400, { error: error.message }); }
+  }
   if (request.method === 'GET' && url.pathname === '/api/health') return send(response, 200, { ok: true, rooms: rooms.size });
 
   if (request.method === 'POST' && url.pathname === '/api/rooms/join') {

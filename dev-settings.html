@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QuizBiblo Local Developer Settings</title>
+  <style>
+    :root { color-scheme: light; font-family: Georgia, serif; background: #efe7dc; color: #24170c; }
+    body { margin: 0; padding: 2rem 1rem; }
+    main { width: min(680px, 100%); margin: auto; padding: 2rem; background: #fffaf5; border: 1px solid #d7c7b5; border-radius: 18px; box-shadow: 0 18px 50px #24170c20; }
+    h1 { margin-top: 0; }
+    .warning { padding: 1rem; border-left: 4px solid #a34b2a; background: #fff0e6; }
+    label { display: grid; gap: .4rem; margin: 1rem 0; font-weight: bold; }
+    input, textarea, button { box-sizing: border-box; width: 100%; padding: .75rem; border: 1px solid #cdbba8; border-radius: 9px; font: inherit; }
+    textarea { min-height: 5rem; resize: vertical; }
+    button { cursor: pointer; background: #a34b2a; color: white; border-color: #a34b2a; font-weight: bold; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    .status { margin: 1rem 0; padding: .75rem; background: #f3eee8; }
+    code { font-family: Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>QuizBiblo local developer settings</h1>
+    <p class="warning"><strong>Local only.</strong> These values remain in the running Node process memory and are cleared when the server stops. They are never written to disk, browser storage, GitHub, or the hosted site.</p>
+    <p>Use this page at <code>http://localhost:3101/__dev/settings</code>. It is blocked for non-loopback requests.</p>
+    <div id="status" class="status">Checking local configuration...</div>
+    <form id="settingsForm">
+      <label>Azure Speech resource key<input id="azureSpeechKey" type="password" autocomplete="off"></label>
+      <label>Azure Speech region<input id="azureSpeechRegion" value="eastus" autocomplete="off"></label>
+      <label>OpenAI API key<input id="openaiApiKey" type="password" autocomplete="off"></label>
+      <label>OpenAI model<input id="openaiModel" value="gpt-4.1-mini" autocomplete="off"></label>
+      <div class="actions"><button type="submit">Store in local process</button><button id="testSpeech" type="button">Test Azure Speech</button></div>
+    </form>
+    <label>Speech test text<textarea id="speechText">QuizBiblo local speech test. Please complete the question and then answer.</textarea></label>
+    <p id="message" class="status" hidden></p>
+  </main>
+  <script src="/dev-settings.js"></script>
+</body>
+</html>

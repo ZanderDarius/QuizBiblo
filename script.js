@@ -16,6 +16,7 @@ const state = {
   questionStartAt: 0,
   events: null,
   audio: { controller: null, element: null, url: '', token: 0 },
+  audioEnabled: false,
 };
 localStorage.setItem('quizbiblo-player-id', state.playerId);
 
@@ -42,6 +43,7 @@ const closeSettingsBtn = $('#closeSettingsBtn');
 const saveSettingsBtn = $('#saveSettingsBtn');
 const settingsStatus = $('#settingsStatus');
 const testSpeechBtn = $('#testSpeechBtn');
+const enableAudioBtn = $('#enableAudioBtn');
 
 const settingsFields = {
   transcriptRetention: $('#transcriptRetention'),
@@ -208,6 +210,10 @@ async function startQuizmasterAudio(room) {
   const settings = JSON.parse(localStorage.getItem('quizbiblo-settings') || '{}');
   const text = String(room.question || '').trim();
   if (!text) return;
+  if (!state.audioEnabled) {
+    readingState.textContent = 'Enable audio before the next question. The visible question remains available.';
+    return;
+  }
   if (settings.speechProvider === 'browser') {
     if (!('speechSynthesis' in window)) return;
     const utterance = new SpeechSynthesisUtterance(text);
@@ -531,6 +537,22 @@ async function buzz() {
 }
 
 startBtn.addEventListener('click', startQuestion);
+enableAudioBtn.addEventListener('click', async () => {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      const context = new AudioContextClass();
+      await context.resume();
+      await context.close();
+    }
+    state.audioEnabled = true;
+    enableAudioBtn.textContent = 'Audio enabled';
+    enableAudioBtn.disabled = true;
+    readingState.textContent = 'Audio is ready for the next question.';
+  } catch {
+    readingState.textContent = 'Audio could not be enabled. Check browser permissions and try again.';
+  }
+});
 buzzBtn.addEventListener('click', buzz);
 previewQuestionsBtn.addEventListener('click', previewQuestions);
 importQuestionsBtn.addEventListener('click', importQuestions);

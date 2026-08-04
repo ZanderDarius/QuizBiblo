@@ -48,7 +48,11 @@ async function testDevOpenAI() {
   try {
     result = await fetch('https://api.openai.com/v1/models/' + encodeURIComponent(devSecrets.openaiModel), { headers: { Authorization: `Bearer ${devSecrets.openaiApiKey}` } });
   } catch { return { status: 502, body: { error: 'Unable to reach OpenAI.' } }; }
-  if (!result.ok) return { status: result.status === 429 ? 429 : 502, body: { error: 'OpenAI rejected the connection test.' } };
+  if (!result.ok) {
+    let detail = '';
+    try { detail = String((await result.json()).error?.message || '').slice(0, 240); } catch {}
+    return { status: result.status === 429 ? 429 : 502, body: { error: `OpenAI rejected the connection test (${result.status}).${detail ? ` ${detail}` : ''}` } };
+  }
   return { status: 200, body: { ok: true, model: devSecrets.openaiModel } };
 }
 

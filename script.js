@@ -15,6 +15,7 @@ const state = {
   roomQuestionStartedAt: null,
   questionStartAt: 0,
   events: null,
+  audio: { controller: null, element: null, url: '', token: 0 },
 };
 localStorage.setItem('quizbiblo-player-id', state.playerId);
 
@@ -187,6 +188,56 @@ function clearReader() {
   }
 }
 
+function stopQuizmasterAudio() {
+  state.audio.token += 1;
+  state.audio.controller?.abort();
+  state.audio.controller = null;
+  if (state.audio.element) {
+    state.audio.element.pause();
+    state.audio.element.currentTime = 0;
+    state.audio.element = null;
+  }
+  if (state.audio.url) URL.revokeObjectURL(state.audio.url);
+  state.audio.url = '';
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+}
+
+async function startQuizmasterAudio(room) {
+  stopQuizmasterAudio();
+  const token = state.audio.token;
+  const settings = JSON.parse(localStorage.getItem('quizbiblo-settings') || '{}');
+  const text = String(room.question || '').trim();
+  if (!text) return;
+  if (settings.speechProvider === 'browser') {
+    if (!('speechSynthesis' in window)) return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.9;
+    window.speechSynthesis.speak(utterance);
+    return;
+  }
+  if (!room.questionId) return;
+  const controller = new AbortController();
+  state.audio.controller = controller;
+  try {
+    const response = await fetch('/api/speech/synthesize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomCode: state.roomCode, playerId: state.playerId, questionId: room.questionId }),
+      signal: controller.signal,
+    });
+    if (!response.ok || token !== state.audio.token) return;
+    const audio = new Audio(URL.createObjectURL(await response.blob()));
+    state.audio.url = audio.src;
+    state.audio.element = audio;
+    await audio.play();
+  } catch (error) {
+    if (error.name !== 'AbortError') readingState.textContent = 'Audio is unavailable. Use the visible question and continue.';
+  } finally {
+    if (state.audio.controller === controller) state.audio.controller = null;
+  }
+}
+
 function renderRoom(room) {
   $('#playerList').innerHTML = playerListHtml(room);
   if (state.isHost) {
@@ -201,6 +252,7 @@ function renderRoom(room) {
 }
 
 function beginReading(room) {
+  stopQuizmasterAudio();
   clearReader();
   state.phase = 'reading';
   state.question = room.question || '';
@@ -211,6 +263,7 @@ function beginReading(room) {
   state.question = room.question || '';
   buzzBtn.disabled = false;
   roundStatus.textContent = `Question ${state.questionNumber} is live`;
+  startQuizmasterAudio(room);
   readingState.textContent = 'Press Space now — first server-received buzz wins.';
 
   const words = state.question.split(/\s+/);
@@ -227,6 +280,7 @@ function beginReading(room) {
 }
 
 function showLocked(room) {
+  stopQuizmasterAudio();
   clearReader();
   state.phase = 'locked';
   buzzBtn.disabled = true;

@@ -26,9 +26,9 @@
     <p>Use this page at <code>http://localhost:3101/__dev/settings</code>. It is blocked for non-loopback requests.</p>
     <div id="status" class="status">Checking local configuration...</div>
     <form id="settingsForm">
-      <label>Azure Speech resource key<input id="azureSpeechKey" type="password" autocomplete="off"></label>
+      <label>Azure Speech resource key<input id="azureSpeechKey" type="password" autocomplete="off" placeholder="Enter a new key to replace the stored key"><small id="azureKeyStatus">Not stored</small></label>
       <label>Azure Speech region<input id="azureSpeechRegion" value="eastus" autocomplete="off"></label>
-      <label>OpenAI API key<input id="openaiApiKey" type="password" autocomplete="off"></label>
+      <label>OpenAI API key<input id="openaiApiKey" type="password" autocomplete="off" placeholder="Enter a new key to replace the stored key"><small id="openaiKeyStatus">Not stored</small></label>
       <label>OpenAI model<select id="openaiModel">
         <option value="gpt-4.1-mini">GPT-4.1 mini</option>
         <option value="gpt-5.6-luna">5.6 Luna</option>

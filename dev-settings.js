@@ -10,6 +10,8 @@ function showMessage(text, error = false) {
 
 function renderStatus(data) {
   status.textContent = `Azure Speech: ${data.azureSpeechConfigured ? 'configured' : 'not configured'} (${data.azureSpeechRegion}). OpenAI: ${data.openaiConfigured ? 'configured' : 'not configured'} (${data.openaiModel}).`;
+  $('#azureKeyStatus').textContent = data.azureSpeechConfigured ? 'Key stored in local server memory. The key is hidden for safety.' : 'Not stored';
+  $('#openaiKeyStatus').textContent = data.openaiConfigured ? 'Key stored in local server memory. The key is hidden for safety.' : 'Not stored';
 }
 
 async function loadStatus() {
@@ -27,7 +29,7 @@ $('#settingsForm').addEventListener('submit', async (event) => {
     $('#azureSpeechKey').value = '';
     $('#openaiApiKey').value = '';
     renderStatus(data);
-    showMessage('Keys were accepted into local process memory. The input fields were cleared.');
+    showMessage('Keys were accepted into local process memory. The key fields stay hidden; use the test buttons to verify them.');
   } catch (error) { showMessage(error.message, true); }
 });
 

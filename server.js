@@ -60,9 +60,9 @@ const server = http.createServer(async (request, response) => {
   if (request.method === 'POST' && url.pathname === '/__dev/settings') {
     try {
       const input = await readJson(request);
-      devSecrets.azureSpeechKey = String(input.azureSpeechKey || '').trim().slice(0, 512);
+      if (String(input.azureSpeechKey || '').trim()) devSecrets.azureSpeechKey = String(input.azureSpeechKey).trim().slice(0, 512);
       devSecrets.azureSpeechRegion = String(input.azureSpeechRegion || 'eastus').trim().toLowerCase().slice(0, 32) || 'eastus';
-      devSecrets.openaiApiKey = String(input.openaiApiKey || '').trim().slice(0, 512);
+      if (String(input.openaiApiKey || '').trim()) devSecrets.openaiApiKey = String(input.openaiApiKey).trim().slice(0, 512);
       devSecrets.openaiModel = String(input.openaiModel || 'gpt-4.1-mini').trim().slice(0, 128) || 'gpt-4.1-mini';
       return send(response, 200, devStatus());
     } catch (error) { return send(response, 400, { error: error.message }); }

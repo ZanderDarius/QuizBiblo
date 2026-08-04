@@ -29,7 +29,10 @@
       <label>Azure Speech resource key<input id="azureSpeechKey" type="password" autocomplete="off"></label>
       <label>Azure Speech region<input id="azureSpeechRegion" value="eastus" autocomplete="off"></label>
       <label>OpenAI API key<input id="openaiApiKey" type="password" autocomplete="off"></label>
-      <label>OpenAI model<input id="openaiModel" value="gpt-4.1-mini" autocomplete="off"></label>
+      <label>OpenAI model<select id="openaiModel">
+        <option value="gpt-4.1-mini">GPT-4.1 mini</option>
+        <option value="gpt-5.6-luna">5.6 Luna</option>
+      </select></label>
       <div class="actions"><button type="submit">Store in local process</button><button id="testSpeech" type="button">Test Azure Speech</button></div>
       <button id="testOpenAI" type="button">Test OpenAI connection</button>
     </form>

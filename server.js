@@ -42,6 +42,15 @@ async function synthesizeDevSpeech(text) {
   if (!result.ok) return { status: result.status === 429 ? 429 : 502, body: { error: 'Azure Speech rejected the test request.' } };
   return { status: 200, audio: Buffer.from(await result.arrayBuffer()) };
 }
+async function testDevOpenAI() {
+  if (!devSecrets.openaiApiKey) return { status: 503, body: { error: 'OpenAI API key is not configured.' } };
+  let result;
+  try {
+    result = await fetch('https://api.openai.com/v1/models/' + encodeURIComponent(devSecrets.openaiModel), { headers: { Authorization: `Bearer ${devSecrets.openaiApiKey}` } });
+  } catch { return { status: 502, body: { error: 'Unable to reach OpenAI.' } }; }
+  if (!result.ok) return { status: result.status === 429 ? 429 : 502, body: { error: 'OpenAI rejected the connection test.' } };
+  return { status: 200, body: { ok: true, model: devSecrets.openaiModel } };
+}
 
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
@@ -66,6 +75,10 @@ const server = http.createServer(async (request, response) => {
       if (result.audio) { response.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' }); return response.end(result.audio); }
       return send(response, result.status, result.body);
     } catch (error) { return send(response, 400, { error: error.message }); }
+  }
+  if (request.method === 'POST' && url.pathname === '/__dev/openai/test') {
+    const result = await testDevOpenAI();
+    return send(response, result.status, result.body);
   }
   if (request.method === 'GET' && url.pathname === '/api/health') return send(response, 200, { ok: true, rooms: rooms.size });
 

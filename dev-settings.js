@@ -42,4 +42,14 @@ $('#testSpeech').addEventListener('click', async () => {
   } catch (error) { showMessage(error.message, true); }
 });
 
+$('#testOpenAI').addEventListener('click', async () => {
+  try {
+    showMessage('Checking the OpenAI API connection...');
+    const response = await fetch('/__dev/openai/test', { method: 'POST' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'OpenAI connection test failed.');
+    showMessage(`OpenAI connection succeeded for ${data.model}.`);
+  } catch (error) { showMessage(error.message, true); }
+});
+
 loadStatus().catch((error) => showMessage(error.message, true));

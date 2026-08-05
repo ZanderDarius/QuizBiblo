@@ -1330,6 +1330,44 @@ async function speechApi(input, env) {
   });
 }
 
+async function gradeApi(input, env) {
+  const key = String(env.OPENAI_API_KEY || '').trim();
+  if (!key) return json({ decision: 'needs_review', error: 'Grading service is not configured.' }, 503);
+  const roomCode = cleanCode(input.roomCode);
+  const playerId = safePlayerId(input.playerId);
+  const responseText = String(input.responseText || '').trim().slice(0, MAX_FIELD_LENGTH);
+  if (!roomCode || !playerId || !responseText) return json({ error: 'A current room, player, and response are required.' }, 400);
+  const room = await loadRoomState(env, roomCode);
+  if (!room || !room.players.some((player) => player.id === playerId)) return json({ error: 'Join the room first.' }, 403);
+  if (room.winnerId !== playerId || !room.questionId) return json({ error: 'Only the current winner may submit a response.' }, 403);
+  const question = await getApprovedQuestionForSpeech(env, room, room.questionId);
+  if (!question) return json({ error: 'The approved question is unavailable.' }, 404);
+  const model = String(env.OPENAI_MODEL || 'gpt-4.1-mini').trim().slice(0, 128);
+  const prompt = [
+    'Grade a Bible quiz response using only the approved record below.',
+    'Return JSON only with decision exactly one of correct, incorrect, needs_review and a short rationale.',
+    `Question: ${question.officialQuestion}`,
+    `Expected answer: ${question.expectedAnswer}`,
+    `Accepted answers: ${question.acceptedAnswers.join('; ')}`,
+    `Student response: ${responseText}`,
+  ].join('\n');
+  let providerResponse;
+  try {
+    providerResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'You are a careful quiz grader. Ambiguous or incomplete answers require needs_review.' }, { role: 'user', content: prompt }] }),
+    });
+  } catch { return json({ decision: 'needs_review', error: 'Grading service is temporarily unavailable.' }, 503); }
+  if (!providerResponse.ok) return json({ decision: 'needs_review', error: 'Grading service rejected the request.' }, providerResponse.status === 429 ? 429 : 503);
+  try {
+    const payload = await providerResponse.json();
+    const parsed = JSON.parse(payload.choices?.[0]?.message?.content || '{}');
+    const decision = ['correct', 'incorrect', 'needs_review'].includes(parsed.decision) ? parsed.decision : 'needs_review';
+    return json({ decision, rationale: String(parsed.rationale || '').slice(0, 300), questionId: question.questionId, attemptId: room.attemptId });
+  } catch { return json({ decision: 'needs_review', error: 'Grading returned an invalid result.' }, 502); }
+}
+
 function questionsApiPreview(input) {
   const parsed = parseQuestionBankInput(input);
   return json({
@@ -1417,6 +1455,10 @@ async function handleApi(request, url, env) {
   if (request.method === 'POST' && url.pathname === '/api/speech/synthesize') {
     const input = await request.json();
     return speechApi(input, env);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/grading/grade') {
+    const input = await request.json();
+    return gradeApi(input, env);
   }
 
   if (request.method === 'POST' && url.pathname === '/api/rooms/join') {

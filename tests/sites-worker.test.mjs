@@ -260,3 +260,15 @@ test('keeps speech credentials server-side and rejects unconfigured synthesis', 
   assert.equal(body.error, 'Speech is not configured.');
   assert.doesNotMatch(JSON.stringify(body), /Ocp-Apim|AZURE_SPEECH_KEY|subscription-key/i);
 });
+
+test('fails closed when grounded grading is not configured', async () => {
+  const response = await request('/api/grading/grade', 'POST', {
+    roomCode: 'GRADE1',
+    playerId: 'grader',
+    responseText: 'answer',
+  });
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.decision, 'needs_review');
+  assert.doesNotMatch(JSON.stringify(body), /api_key|authorization|sk-/i);
+});

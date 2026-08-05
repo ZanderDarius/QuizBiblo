@@ -1,9 +1,5 @@
-<<<<<<< Updated upstream
 # QuizBiblo Voice-First AI Practice Pilot Proposal
-=======
-# QuizBiblo AI Two-Player Practice Pilot
 Version: 1.3
->>>>>>> Stashed changes
 
 ## Decision requested
 
@@ -346,7 +342,6 @@ The pilot is ready for a decision when two students on separate Windows PCs can:
 10. Demonstrate that no Azure key, grading key, or raw microphone audio appears
     in the browser, repository, issue history, logs, or stored match record.
 
-<<<<<<< Updated upstream
 Success means the hosted app demonstrates a credible, safe spoken practice turn.
 It does not mean the app is approved as an official competition judge.
 
@@ -357,7 +352,6 @@ It does not mean the app is approved as an official competition judge.
 - [Azure Speech text-to-speech REST API](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/rest-text-to-speech)
 - [Azure Speech synthesis and word-boundary events](https://learn.microsoft.com/en-us/azure/ai-services/speech-service/how-to-speech-synthesis)
 - Local setup reference: `WritingTools/docs/Azure Speech Read-Aloud Setup.md`
-=======
 Approval authorizes a focused web pilot: **two-player rooms, server-authoritative Space-to-buzz, Regular / Interrogative factual questions, AI-judged question completion plus answer, and reread-to-opponent flow.** Quotation, memory, Finish-the-Verse, official scoring, teams larger than two, and advanced voice interaction follow only after this shared-room demonstration is accepted.
 
 ## Issue #1 completion: Frozen voice-first turn contract
@@ -431,4 +425,3 @@ This section is the approved behavioral contract for all implementation that fol
 ### Open decisions
 
 - No unresolved product decisions remain in this contract. All open questions about audio UX quality, full human reviewer UI, and team-size expansion are out-of-scope and should be tracked in separate follow-up implementation issues.
->>>>>>> Stashed changes
